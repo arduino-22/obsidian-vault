@@ -1,0 +1,165 @@
+{
+  "main": {
+    "id": "a466aa45826af70b",
+    "type": "split",
+    "children": [
+      {
+        "id": "d885a72abd6733f7",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "dbb66f17b5110b59",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Articles/Linux Security.md",
+                "mode": "preview",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Linux Security"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "634a6a473f56207a",
+    "type": "split",
+    "children": [
+      {
+        "id": "d821fb662f170a50",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "b600ceffdbce24ee",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Файловый менеджер"
+            }
+          },
+          {
+            "id": "29ddc55fa55f4c53",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Поиск"
+            }
+          },
+          {
+            "id": "678cacf3e5106554",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Закладки"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "5587d625fd889713",
+    "type": "split",
+    "children": [
+      {
+        "id": "4b16afea920508b2",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "5f3f98f2d0b8debe",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Articles/Linux Security.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Обратные ссылки для Linux Security"
+            }
+          },
+          {
+            "id": "73ed18359847855b",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "Все свойства"
+            }
+          },
+          {
+            "id": "c8fa56558f09310e",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Articles/Linux Security.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Структура Linux Security"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Меню быстрого перехода": false,
+      "graph:Граф": false,
+      "canvas:Создать новый холст": false,
+      "command-palette:Открыть палитру команд": false,
+      "markdown-importer:Импорт Markdown-файлов": false,
+      "random-note:Открыть случайную заметку": false,
+      "workspaces:Пространства": false,
+      "bases:Создать новую базу": false
+    }
+  },
+  "active": "dbb66f17b5110b59",
+  "lastOpenFiles": [
+    "Articles/Large Scale Attacks & APTs.md",
+    "Articles/Data Breaches.md",
+    "Articles/Crypto.md",
+    "Articles/Bounties & Zero-Days.md"
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "main": {
+    "id": "7684b2515614580b",
+    "type": "split",
+    "children": [
+      {
+        "id": "abb4646eec8e84b5",
+        "type": "leaf",
+        "state": {
+          "type": "markdown",
+          "state": {
+            "file": "Writeups/SESH/DVWA/Shells Session Writeup - DVWA.md",
+            "mode": "preview"
+          }
+        }
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "b8df5bd0fc2efa4f",
+    "type": "split",
+    "children": [
+      {
+        "id": "8d4f375b0ae73b66",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "833b91e6ebe451de",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {}
+            }
+          },
+          {
+            "id": "4fd6f4be5a5fef0c",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "\"05 - Enumeration\"",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 323
+  },
+  "right": {
+    "id": "4aa42a08b2824dd0",
+    "type": "split",
+    "children": [
+      {
+        "id": "a7c9d65e7d3521ad",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f550629c26df6417",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Writeups/SESH/DVWA/Shells Session Writeup - DVWA.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": false
+              }
+            }
+          },
+          {
+            "id": "430f1f2730f94c87",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Writeups/SESH/DVWA/Shells Session Writeup - DVWA.md"
+              }
+            }
+          }
+        ],
+        "currentTab": 1
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "active": "abb4646eec8e84b5",
+  "lastOpenFiles": [
+    "Writeups/SESH/DVWA/Shells Session Writeup - DVWA.md",
+    "Exam Resources/OSCP/OSCP - My Experience.md",
+    "Exam Resources/OSCP/OSCP Practice Exam Writeups.md",
+    "Exam Resources/OSCP/OSCP Resources.md",
+    "Exam Resources/OSCP/Exam Details.md",
+    "Exam Resources/OSCP/OSCP Prep Series Intro.md",
+    "Writeups/CTFs/HTB Uni CTF 2021/Upgrades - Reversing Challenge.md",
+    "Writeups/Hack the Box/Boxes/Writeup/15 - Shell as jkr.md",
+    "Writeups/Hack the Box/Boxes/Writeup/00 - Overview.md",
+    "Writeups/Hack the Box/Boxes/Shocker/0 - Overview.md"
+  ]
+}
