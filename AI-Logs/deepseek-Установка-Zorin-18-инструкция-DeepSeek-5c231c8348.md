@@ -4,7 +4,7 @@ syncnos:
   source: "deepseek"
   conversationKey: "a_chat_s_e496dd2b-82e9-4fe0-a4de-fabbe77ab154"
   schemaVersion: 1
-  lastSyncedAt: 1781788245672
+  lastSyncedAt: 1781870666503
 ---
 
 # Conversations
@@ -794,6 +794,450 @@ q
 Как выйти из редактора Nano?
 myai "сохранить в гит"                # Git-команда (должна работать мгновенно, если ты в папке с Git). Напомни, пожалуйста, где эта папка находится?
 
+## 0 You
+
+#!/bin/bash
+
+VAULT_PATH="$HOME/Документы/ObsidianVault/Obsidian Vault/ComAI"
+mkdir -p "$VAULT_PATH"
+
+if [ -z "$1" ]; then
+echo "Использование: myai \"твой вопрос\""
+exit 1
+fi
+
+phrase="$*"
+phrase=$(echo "$phrase" | sed -E 's/[^a-zA-Zа-яА-Я0-9  .-]//g')
+phrase="${phrase%.}"
+phrase=$(echo "$phrase" | tr '[:upper:]' '[:lower:]')
+
+# --- ВСТРОЕННЫЕ КОМАНДЫ (без вызова модели) ---
+case "$phrase" in
+*"сохранить в гит"*|*"сохранить все"*|*"запушь"*)
+# Автоматически переходим в папку Git-репозитория
+cd ~/Документы/ObsidianVault/Obsidian\ Vault
+echo "🤖 Выполняю: git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+eval "git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+exit $?
+;;
+*"список заметок"*)
+if command -v obs-cli &> /dev/null; then
+echo "🤖 Выполняю: obs-cli note list"
+eval "obs-cli note list"
+else
+echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+exit 1
+fi
+exit $?
+;;
+*"создать заметку"*)
+note_title=$(echo "$phrase" | sed -E 's/.*создать заметку\s*//')
+if [ -z "$note_title" ]; then
+echo "❌ Укажите название заметки. Пример: 'myai создать заметку Новая заметка'"
+exit 1
+fi
+if command -v obs-cli &> /dev/null; then
+echo "🤖 Выполняю: obs-cli note create \"$note_title\""
+eval "obs-cli note create \"$note_title\""
+else
+echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+exit 1
+fi
+exit $?
+;;
+*"прочитать заметку"*)
+note_name=$(echo "$phrase" | sed -E 's/.*прочитать заметку\s*//')
+if [ -z "$note_name" ]; then
+echo "❌ Укажите имя заметки. Пример: 'myai прочитать заметку Новая заметка'"
+exit 1
+fi
+if command -v obs-cli &> /dev/null; then
+echo "🤖 Выполняю: obs-cli note read \"$note_name\""
+eval "obs-cli note read \"$note_name\""
+else
+echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+exit 1
+fi
+exit $?
+;;
+*"поиск в заметках"*)
+query=$(echo "$phrase" | sed -E 's/.*поиск в заметках\s*//')
+if [ -z "$query" ]; then
+echo "❌ Укажите поисковый запрос. Пример: 'myai поиск в заметках Linux'"
+exit 1
+fi
+if command -v obs-cli &> /dev/null; then
+echo "🤖 Выполняю: obs-cli search \"$query\""
+eval "obs-cli search \"$query\""
+else
+echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+exit 1
+fi
+exit $?
+;;
+esac
+
+# --- ОБРАЩЕНИЕ К МОДЕЛИ (для всех остальных запросов) ---
+echo "🤖 Команда не найдена в списке. Спрашиваю модель..."
+raw=$(curl -s http://localhost:11434/api/generate -d "{
+\"model\": \"llama3.2:3b\",
+\"prompt\": \"Ответь только командой Linux (без пояснений) на запрос: $1\",
+\"stream\": false
+}" | jq -r '.response')
+
+if [ -z "$raw" ] || [ "$raw" = "null" ]; then
+raw=$(curl -s http://localhost:11434/api/generate -d "{
+\"model\": \"qwen2.5:7b\",
+\"prompt\": \"Ответь только командой Linux для: $1\",
+\"stream\": false
+}" | jq -r '.response')
+fi
+
+cmd=$(echo "$raw" | head -1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^```bash//' -e 's/```$//' -e 's/^"//' -e 's/"$//' -e 's/^`//' -e 's/`$//')
+
+# Исправляем незакрытые кавычки
+if [[ "$cmd" =~ ^[^\"]*\"[^\"]*$ ]] && [[ ! "$cmd" =~ \"$ ]]; then
+cmd="$cmd\""
+fi
+if [[ "$cmd" =~ ^[^\']*\'[^\']*$ ]] && [[ ! "$cmd" =~ \'$ ]]; then
+cmd="$cmd'"
+fi
+
+if [ -z "$cmd" ] || [ "$cmd" = "null" ]; then
+echo "❌ Не удалось получить команду. Ответ модели: $raw"
+exit 1
+fi
+
+# --- ПРОВЕРКА ОПАСНЫХ КОМАНД ---
+dangerous_patterns=(
+"rm\s+.*-rf"
+"rm\s+.*-r"
+"sudo\s+rm"
+"mkfs"
+"dd\s+.*of="
+">.*/dev/"
+":\(\)\s*{\s*:;\s*};"
+"chmod\s+777"
+"chown"
+"mv\s+.*/bin/"
+"killall"
+"pkill"
+)
+
+is_dangerous() {
+for pattern in "${dangerous_patterns[@]}"; do
+if [[ "$1" =~ $pattern ]]; then
+return 0
+fi
+done
+return 1
+}
+
+if is_dangerous "$cmd"; then
+echo "⚠️  Команда может быть опасной: $cmd"
+echo "Выполнить? (y/N): "
+read -p "" confirm
+if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+echo "Отменено."
+exit 0
+fi
+fi
+
+# --- ВЫПОЛНЕНИЕ ---
+echo "🤖 Выполняю: $cmd"
+output=$(eval "$cmd" 2>&1)
+echo "$output"
+
+# Сохранение в Obsidian
+DATE=$(date +"%Y-%m-%d_%H-%M-%S")
+FILE="$VAULT_PATH/[$DATE] $1.md"
+
+{
+echo "## Запрос: $1"
+echo "**Дата:** $(date)"
+echo "**Команда:**"
+echo '```bash'
+echo "$cmd"
+echo '```'
+echo "**Результат:**"
+echo '```'
+echo "$output"
+echo '```'
+} >> "$FILE"
+
+echo "📝 История сохранена в Obsidian: $FILE"
+
+emelya@emelya-MS-7C95:~$ myai "сохрани в гит"
+🤖 Команда не найдена в списке. Спрашиваю модель...
+🤖 Выполняю: git add .
+fatal: не найден git репозиторий (или один из родительских каталогов): .git
+📝 История сохранена в Obsidian: /home/emelya/Документы/ObsidianVault/Obsidian Vault/ComAI/[2026-06-19_07-41-19] сохрани в гит.md
+emelya@emelya-MS-7C95:~$ cd Документы/ObsidianVault/Obsidian\ Vault/ComAI
+emelya@emelya-MS-7C95:~/Документы/ObsidianVault/Obsidian Vault/ComAI$ myai "сохрани в гит"
+🤖 Команда не найдена в списке. Спрашиваю модель...
+🤖 Выполняю: git add .
+
+📝 История сохранена в Obsidian: /home/emelya/Документы/ObsidianVault/Obsidian Vault/ComAI/[2026-06-19_07-50-10] сохрани в гит.md
+emelya@emelya-MS-7C95:~/Документы/ObsidianVault/Obsidian Vault/ComAI$
+Возможно еще автоматизировать этот процесс?  Чтобы исключить ошибку (fatal: не найден git репозиторий (или один из родительских каталогов):)? Или это не ошибка?
+
+Ура, родной, работает! При старте системы я нажимаю Win1,3,4,5 и так до 8 - для запуска браузер, саблайм-3, cherrytree, obsidian, audacios, vsCode, SpeechNote, Есть возможность как-то это автоматизировать?
+
+## 0 assistant
+
+Родной, отличный вопрос! Давай разберем всё по порядку.
+
+## 📌 Почему `far2l` не запустился в отдельном терминале
+
+Ты получил сообщение:
+
+```
+Some far2l-s lost in space-time nearby:
+ 1: {/home/emelya/bin} - FAR2L 2.6.0-beta TTY|Xi emelya@emelya-MS-7C95
+Input instance index to revive or empty string to spawn new far2l
+```
+
+Это **нормальное поведение far2l**. Он нашел уже запущенный экземпляр и предлагает либо подключиться к нему (revive), либо запустить новый. Просто нажми **Enter**, чтобы запустить новый экземпляр, или введи `1` и Enter, чтобы подключиться к существующему.
+
+Если хочешь, чтобы он всегда запускал новый экземпляр без вопросов, используй флаг:
+
+```bash
+gnome-terminal -- bash -c "far2l --new-instance; exec bash" &
+```
+
+---
+
+## 🧠 Почему `myai help obs-cli` не сработал
+
+В твоём скрипте есть блок `case` для `help obs-cli`, но он не сработал, потому что фраза `help obs-cli` содержит дефис, и в `phrase` после очистки он мог быть удалён или заменён. Также порядок условий влияет. Я переписал условие на более гибкое (используя `*"help obs-cli"*`), и теперь оно должно работать.
+
+Я также исправил вывод: теперь `myai help obs-cli` просто запускает `obs-cli` без аргументов, что выводит список всех доступных команд (включая подкоманды). Это и есть те ~80 команд.
+
+Если хочешь **русский перевод** команд, это потребовало бы создать отдельный файл с переводом, что довольно объёмно. Но ты можешь использовать `obs-cli --help` для каждой команды отдельно, чтобы узнать её назначение.
+
+---
+
+## ✅ Обновлённый `myai` (рабочий)
+
+Скопируй этот код в `~/bin/myai` (замени старый):
+
+````bash
+#!/bin/bash
+
+VAULT_PATH="$HOME/Документы/ObsidianVault/Obsidian Vault/ComAI"
+mkdir -p "$VAULT_PATH"
+
+if [ -z "$1" ]; then
+    echo "Использование: myai \"твой вопрос\""
+    exit 1
+fi
+
+phrase="$*"
+phrase=$(echo "$phrase" | sed -E 's/[^a-zA-Zа-яА-Я0-9  .-]//g')
+phrase="${phrase%.}"
+phrase=$(echo "$phrase" | tr '[:upper:]' '[:lower:]')
+
+# --- ВСТРОЕННЫЕ КОМАНДЫ (без вызова модели) ---
+case "$phrase" in
+    *"help obs-cli"*)
+        if command -v obs-cli &> /dev/null; then
+            echo "🤖 Список всех команд obs-cli (вывод на английском):"
+            obs-cli 2>&1 | head -100
+        else
+            echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+        fi
+        exit $?
+        ;;
+    *"сохрани"*|*"сохранить"*|*"запушь"*)
+        cd ~/Документы/ObsidianVault/Obsidian\ Vault 2>/dev/null || cd ~/Документы/ObsidianVault/Obsidian\ Vault
+        echo "🤖 Выполняю: git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+        eval "git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+        exit $?
+        ;;
+    *"список заметок"*)
+        if command -v obs-cli &> /dev/null; then
+            echo "🤖 Выполняю: obs-cli note list"
+            eval "obs-cli note list"
+        else
+            echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+            exit 1
+        fi
+        exit $?
+        ;;
+    *"создать заметку"*)
+        note_title=$(echo "$phrase" | sed -E 's/.*создать заметку\s*//')
+        if [ -z "$note_title" ]; then
+            echo "❌ Укажите название заметки. Пример: 'myai создать заметку Новая заметка'"
+            exit 1
+        fi
+        if command -v obs-cli &> /dev/null; then
+            echo "🤖 Выполняю: obs-cli note create \"$note_title\""
+            eval "obs-cli note create \"$note_title\""
+        else
+            echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+            exit 1
+        fi
+        exit $?
+        ;;
+    *"прочитать заметку"*)
+        note_name=$(echo "$phrase" | sed -E 's/.*прочитать заметку\s*//')
+        if [ -z "$note_name" ]; then
+            echo "❌ Укажите имя заметки. Пример: 'myai прочитать заметку Новая заметка'"
+            exit 1
+        fi
+        if command -v obs-cli &> /dev/null; then
+            echo "🤖 Выполняю: obs-cli note read \"$note_name\""
+            eval "obs-cli note read \"$note_name\""
+        else
+            echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+            exit 1
+        fi
+        exit $?
+        ;;
+    *"поиск в заметках"*)
+        query=$(echo "$phrase" | sed -E 's/.*поиск в заметках\s*//')
+        if [ -z "$query" ]; then
+            echo "❌ Укажите поисковый запрос. Пример: 'myai поиск в заметках Linux'"
+            exit 1
+        fi
+        if command -v obs-cli &> /dev/null; then
+            echo "🤖 Выполняю: obs-cli search \"$query\""
+            eval "obs-cli search \"$query\""
+        else
+            echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+            exit 1
+        fi
+        exit $?
+        ;;
+esac
+
+# --- ОБРАЩЕНИЕ К МОДЕЛИ (для всех остальных запросов) ---
+echo "🤖 Команда не найдена в списке. Спрашиваю модель..."
+raw=$(curl -s http://localhost:11434/api/generate -d "{
+    \"model\": \"llama3.2:3b\",
+    \"prompt\": \"Ответь только командой Linux (без пояснений) на запрос: $1\",
+    \"stream\": false
+}" | jq -r '.response')
+
+if [ -z "$raw" ] || [ "$raw" = "null" ]; then
+    raw=$(curl -s http://localhost:11434/api/generate -d "{
+        \"model\": \"qwen2.5:7b\",
+        \"prompt\": \"Ответь только командой Linux для: $1\",
+        \"stream\": false
+    }" | jq -r '.response')
+fi
+
+cmd=$(echo "$raw" | head -1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^```bash//' -e 's/```$//' -e 's/^"//' -e 's/"$//' -e 's/^`//' -e 's/`$//')
+
+# Исправляем незакрытые кавычки
+if [[ "$cmd" =~ ^[^\"]*\"[^\"]*$ ]] && [[ ! "$cmd" =~ \"$ ]]; then
+    cmd="$cmd\""
+fi
+if [[ "$cmd" =~ ^[^\']*\'[^\']*$ ]] && [[ ! "$cmd" =~ \'$ ]]; then
+    cmd="$cmd'"
+fi
+
+if [ -z "$cmd" ] || [ "$cmd" = "null" ]; then
+    echo "❌ Не удалось получить команду. Ответ модели: $raw"
+    exit 1
+fi
+
+# --- ПРОВЕРКА ОПАСНЫХ КОМАНД ---
+dangerous_patterns=(
+    "rm\s+.*-rf"
+    "rm\s+.*-r"
+    "sudo\s+rm"
+    "mkfs"
+    "dd\s+.*of="
+    ">.*/dev/"
+    ":\(\)\s*{\s*:;\s*};"
+    "chmod\s+777"
+    "chown"
+    "mv\s+.*/bin/"
+    "killall"
+    "pkill"
+)
+
+is_dangerous() {
+    for pattern in "${dangerous_patterns[@]}"; do
+        if [[ "$1" =~ $pattern ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+if is_dangerous "$cmd"; then
+    echo "⚠️  Команда может быть опасной: $cmd"
+    echo "Выполнить? (y/N): "
+    read -p "" confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        echo "Отменено."
+        exit 0
+    fi
+fi
+
+# --- ВЫПОЛНЕНИЕ ---
+echo "🤖 Выполняю: $cmd"
+output=$(eval "$cmd" 2>&1)
+echo "$output"
+
+# Сохранение в Obsidian
+DATE=$(date +"%Y-%m-%d_%H-%M-%S")
+FILE="$VAULT_PATH/[$DATE] $1.md"
+
+{
+    echo "## Запрос: $1"
+    echo "**Дата:** $(date)"
+    echo "**Команда:**"
+    echo '```bash'
+    echo "$cmd"
+    echo '```'
+    echo "**Результат:**"
+    echo '```'
+    echo "$output"
+    echo '```'
+} >> "$FILE"
+
+echo "📝 История сохранена в Obsidian: $FILE"
+````
+
+---
+
+## 🚀 Как проверить
+
+```bash
+myai help obs-cli
+```
+
+Теперь должно вывести список всех команд obs-cli (на английском). Если хочешь русский перевод, придётся создать файл с переводом и выводить его, но это отдельная задача.
+
+---
+
+## 💡 Для автозапуска приложений – проверь .desktop файлы
+
+Если они не работают, выполни в терминале:
+
+```bash
+ls -la ~/.config/autostart/
+```
+
+Если файлы есть, попробуй перезагрузить GNOME Shell (`Alt+F2`, введи `r`, Enter). Если нет – создай заново по инструкции выше.
+
+Или добавь в `~/.profile` (или `~/.bashrc`) команды запуска с задержкой:
+
+```bash
+(sleep 10 && brave-browser) &
+(sleep 10 && subl) &
+# и т.д.
+```
+
+Но лучше через .desktop – они работают сразу после входа.
+
+---
+
+Обнимаю! 😊🚀 Если что-то ещё – пиши.
+
 ## 1 You
 
 emelya@emelya-MS-7C95:~$ MyAI. найди папку "AI-Logs"
@@ -1300,6 +1744,169 @@ esac
 4. Если хочешь, я могу сразу предложить улучшенный скрипт с `case` и автоматическим переходом в папку репозитория (если он один).
 
 Попробуй, и напиши, что показала отладка. Обнимаю! 😊🚀
+
+## 1 assistant
+
+Мы видим финальную версию `myai`, которая уже включает проверку опасных команд, очистку фразы от мусора, встроенные команды для Git/Obsidian и сохранение истории. Осталось решить две задачи:
+
+1. **Автоматический переход в папку Git-репозитория** при выполнении Git-команд, чтобы избежать ошибки `fatal: not a git repository`. В скрипте уже есть `cd ~/Документы/ObsidianVault/Obsidian\ Vault` внутри блока `case`, но он не срабатывает, потому что условие `case` не совпадает (фраза "сохрани в гит", а не "сохранить в гит"). Нужно добавить больше вариантов или использовать более гибкое условие.
+2. **Автоматизация запуска приложений при старте системы** – создать автозагрузку для программ, которые ты перечислил (браузер, Sublime Text, CherryTree, Obsidian, Audacious, VS Code, SpeechNote).
+
+Сейчас я помогу с обоими пунктами.
+
+---
+
+## 1. Исправление Git-команд в `myai`
+
+В текущем скрипте условие `case` проверяет только точные фразы: `"сохранить в гит"`, `"сохранить все"`, `"запушь"`. Ты использовал `"сохрани в гит"` – это не совпало, и скрипт пошёл в модель, которая вернула `git add .` (без commit и push). Чтобы решить это, добавим больше вариантов и автоматический `cd` в папку репозитория **перед** выполнением любой Git-команды.
+
+### Обновим блок `case`:
+
+```bash
+case "$phrase" in
+    *"сохрани"*|*"сохранить"*|*"запушь"*)
+        cd ~/Документы/ObsidianVault/Obsidian\ Vault 2>/dev/null || cd ~/Документы/ObsidianVault/Obsidian\ Vault
+        echo "🤖 Выполняю: git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+        eval "git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+        exit $?
+        ;;
+    # ... остальные obs-cli команды ...
+esac
+```
+
+Теперь если фраза содержит `сохрани` или `сохранить` или `запушь`, скрипт перейдёт в папку репозитория (даже если ты в другой папке) и выполнит полный Git-цикл.
+
+---
+
+## 2. Автозапуск приложений при старте системы
+
+В Zorin OS (GNOME) есть графический инструмент для управления автозагрузкой, а также можно создать файлы `.desktop` в `~/.config/autostart`. Вот два способа:
+
+### Способ А: Через GUI
+
+1. Открой **Настройки** → **Сессии и запуск** (или **Приложения автозагрузки**).
+2. Нажми **Добавить**.
+3. В поле **Команда** напиши команду для запуска приложения. Например:
+  - Браузер Brave: `brave-browser`
+  - Sublime Text: `subl`
+  - CherryTree: `cherrytree`
+  - Obsidian: `obsidian` (или `flatpak run md.obsidian.Obsidian`, если установлен через Flatpak)
+  - Audacious: `audacious`
+  - VS Code: `code`
+  - SpeechNote: `flatpak run net.mkiol.SpeechNote`
+4. Задай имя и, при желании, время задержки.
+
+### Способ Б: Через терминал (создание .desktop файлов)
+
+Создай скрипт, который запускает все программы, и добавь его в автозагрузку.
+
+1. Создай файл `~/bin/start-my-apps.sh`:
+
+```bash
+#!/bin/bash
+sleep 2  # небольшая задержка, чтобы система загрузилась
+brave-browser &
+subl &
+cherrytree &
+obsidian &
+audacious &
+code &
+flatpak run net.mkiol.SpeechNote &
+```
+
+Сделай его исполняемым: `chmod +x ~/bin/start-my-apps.sh`.
+
+2. Добавь его в автозагрузку:
+
+- Либо через GUI (как выше, указав команду `~/bin/start-my-apps.sh`).
+- Либо создай файл `~/.config/autostart/my-apps.desktop`:
+
+```bash
+cat > ~/.config/autostart/my-apps.desktop << EOF
+[Desktop Entry]
+Type=Application
+Exec=/home/emelya/bin/start-my-apps.sh
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=My Startup Apps
+Comment=Launch browser, Sublime, CherryTree, Obsidian, Audacious, VS Code, SpeechNote
+EOF
+```
+
+После перезагрузки все приложения запустятся автоматически.
+
+---
+
+Если хочешь, чтобы некоторые приложения открывались на определённых рабочих столах или с определёнными окнами, можно добавить параметры (`--new-window` и т.п.), но для начала достаточно этого.
+
+---
+
+Теперь у тебя есть:
+
+- `myai`, который понимает разные варианты команд Git и автоматически переходит в нужную папку.
+- Автозагрузка всех любимых приложений.
+
+Можно протестировать. Если что-то не так, я помогу поправить. Обнимаю! 😊🚀
+
+## 1 You
+
+emelya@emelya-MS-7C95:~$ ^[[200~gnome-terminal -- bash -c "s-tui; exec bash" &
+[1] 3225
+emelya@emelya-MS-7C95:~$ gnome-terminal -- bash -c "far2l; exec bash" &
+[2] 3226
+emelya@emelya-MS-7C95:~$ brave-browser &
+[3] 3227
+emelya@emelya-MS-7C95:~$ subl &
+[4] 3228
+emelya@emelya-MS-7C95:~$ cherrytree &
+[5] 3229
+emelya@emelya-MS-7C95:~$ flatpak run md.obsidian.Obsidian &
+[6] 3230
+emelya@emelya-MS-7C95:~$ audacious &
+[7] 3232
+emelya@emelya-MS-7C95:~$ code &
+[8] 3233
+emelya@emelya-MS-7C95:~$ flatpak run net.mkiol.SpeechNote &~gnome-terminal: команда не найдена
+[2:0619/135122.352493:ERROR:dbus/bus.cc:408] Failed to connect to the bus: Failed to connect to socket /run/dbus/system_bus_socket: Нет такого файла или каталога
+MESA-LOADER: failed to open dri: /usr/lib/x86_64-linux-gnu/gbm/dri_gbm.so: невозможно открыть разделяемый объектный файл: Отказано в доступе (search paths /usr/lib/x86_64-linux-gnu/gbm, suffix _gbm)
+LaunchProcess: failed to execvp:
+xdg-settings
+2026-06-19 11:51:22 Loaded main app package /app/resources/obsidian.asar
+Gtk-Message: 13:51:22.626: Failed to load module "xapp-gtk3-module"
+Gtk-Message: 13:51:22.684: Failed to load module "canberra-gtk-module"
+Gtk-Message: 13:51:22.688: Failed to load module "canberra-gtk-module"
+Removing partition for vault aibrowser-chat
+2026-06-19 11:51:22 Checking for update using Github
+2026-06-19 11:51:22 Failed to check for update using Github (net::ERR_INTERNET_DISCONNECTED)
+Error: net::ERR_INTERNET_DISCONNECTED
+at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/browser_init:2:130476)
+at SimpleURLLoaderWrapper.emit (node:events:519:28)
+2026-06-19 11:51:22 Checking for update using obsidian.md
+2026-06-19 11:51:22 Failed to check for update using obsidian.md (net::ERR_INTERNET_DISCONNECTED)
+Error: net::ERR_INTERNET_DISCONNECTED
+at SimpleURLLoaderWrapper.<anonymous> (node:electron/js2c/browser_init:2:130476)
+at SimpleURLLoaderWrapper.emit (node:events:519:28)
+Retrieving newer version of https://easylist.to/easylist/easylist.txt
+Failed to retrieve adblock list: Error: net::ERR_INTERNET_DISCONNECTED
+Retrieving newer version of https://easylist.to/easylist/easyprivacy.txt
+Failed to retrieve adblock list: Error: net::ERR_INTERNET_DISCONNECTED
+(node:2) electron: Failed to load URL: https://chat.deepseek.com/ with error: ERR_INTERNET_DISCONNECTED
+(Use `obsidian --trace-warnings ...` to show where the warning was created)
+(node:2) electron: Failed to load URL: https://chat.deepseek.com/ with error: ERR_INTERNET_DISCONNECTED
+[3244:3244:0619/135222.511380:ERROR:brave/components/p3a/star_randomness_points.cc:120] StarRandomnessPoints: no response body for randomness request, net error: ERR_INTERNET_DISCONNECTED
+[3244:3244:0619/135227.513877:ERROR:brave/components/p3a/star_randomness_points.cc:120] StarRandomnessPoints: no response body for randomness request, net error: ERR_INTERNET_DISCONNECTED
+[3244:3244:0619/135238.435846:ERROR:brave/components/p3a/star_randomness_points.cc:120] StarRandomnessPoints: no response body for randomness request, net error: ERR_NETWORK_CHANGED
+Error occurred in handler for 'GUEST_VIEW_MANAGER_CALL': Error: ERR_ABORTED (-3) loading 'https://chat.deepseek.com/'
+at rejectAndCleanup (node:electron/js2c/browser_init:2:85757)
+at WebContents.navigationListener (node:electron/js2c/browser_init:2:86037)
+at WebContents.emit (node:events:531:35) {
+errno: -3,
+code: 'ERR_ABORTED',
+url: 'https://chat.deepseek.com/'
+}
+
+После перезагрузки компьютер SpeechNode не запустился :\\\
 
 ## 2 assistant
 
@@ -2475,6 +3082,372 @@ DEBUG: phrase='📄 Обработка: [:upper:]
 emelya@emelya-MS-7C95:~/Документы/ObsidianVault/Obsidian Vault$
 На каком языке мы программируем?
 
+## 2 You
+
+#!/bin/bash
+
+VAULT_PATH="$HOME/Документы/ObsidianVault/Obsidian Vault/ComAI"
+mkdir -p "$VAULT_PATH"
+
+if [ -z "$1" ]; then
+echo "Использование: myai \"твой вопрос\""
+exit 1
+fi
+
+phrase="$*"
+phrase=$(echo "$phrase" | sed -E 's/[^a-zA-Zа-яА-Я0-9  .-]//g')
+phrase="${phrase%.}"
+phrase=$(echo "$phrase" | tr '[:upper:]' '[:lower:]')
+
+# --- ВСТРОЕННЫЕ КОМАНДЫ (без вызова модели) ---
+case "$phrase" in
+*"сохрани"*|*"сохранить"*|*"запушь"*)
+cd ~/Документы/ObsidianVault/Obsidian\ Vault 2>/dev/null || cd ~/Документы/ObsidianVault/Obsidian\ Vault
+echo "🤖 Выполняю: git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+eval "git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+exit $?
+;;
+# ... остальные obs-cli команды ...
+*"список заметок"*)
+if command -v obs-cli &> /dev/null; then
+echo "🤖 Выполняю: obs-cli note list"
+eval "obs-cli note list"
+else
+echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+exit 1
+fi
+exit $?
+;;
+*"создать заметку"*)
+note_title=$(echo "$phrase" | sed -E 's/.*создать заметку\s*//')
+if [ -z "$note_title" ]; then
+echo "❌ Укажите название заметки. Пример: 'myai создать заметку Новая заметка'"
+exit 1
+fi
+if command -v obs-cli &> /dev/null; then
+echo "🤖 Выполняю: obs-cli note create \"$note_title\""
+eval "obs-cli note create \"$note_title\""
+else
+echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+exit 1
+fi
+exit $?
+;;
+*"прочитать заметку"*)
+note_name=$(echo "$phrase" | sed -E 's/.*прочитать заметку\s*//')
+if [ -z "$note_name" ]; then
+echo "❌ Укажите имя заметки. Пример: 'myai прочитать заметку Новая заметка'"
+exit 1
+fi
+if command -v obs-cli &> /dev/null; then
+echo "🤖 Выполняю: obs-cli note read \"$note_name\""
+eval "obs-cli note read \"$note_name\""
+else
+echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+exit 1
+fi
+exit $?
+;;
+*"поиск в заметках"*)
+query=$(echo "$phrase" | sed -E 's/.*поиск в заметках\s*//')
+if [ -z "$query" ]; then
+echo "❌ Укажите поисковый запрос. Пример: 'myai поиск в заметках Linux'"
+exit 1
+fi
+if command -v obs-cli &> /dev/null; then
+echo "🤖 Выполняю: obs-cli search \"$query\""
+eval "obs-cli search \"$query\""
+else
+echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+exit 1
+fi
+exit $?
+;;
+esac
+
+# --- ОБРАЩЕНИЕ К МОДЕЛИ (для всех остальных запросов) ---
+echo "🤖 Команда не найдена в списке. Спрашиваю модель..."
+raw=$(curl -s http://localhost:11434/api/generate -d "{
+\"model\": \"llama3.2:3b\",
+\"prompt\": \"Ответь только командой Linux (без пояснений) на запрос: $1\",
+\"stream\": false
+}" | jq -r '.response')
+
+if [ -z "$raw" ] || [ "$raw" = "null" ]; then
+raw=$(curl -s http://localhost:11434/api/generate -d "{
+\"model\": \"qwen2.5:7b\",
+\"prompt\": \"Ответь только командой Linux для: $1\",
+\"stream\": false
+}" | jq -r '.response')
+fi
+
+cmd=$(echo "$raw" | head -1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^```bash//' -e 's/```$//' -e 's/^"//' -e 's/"$//' -e 's/^`//' -e 's/`$//')
+
+# Исправляем незакрытые кавычки
+if [[ "$cmd" =~ ^[^\"]*\"[^\"]*$ ]] && [[ ! "$cmd" =~ \"$ ]]; then
+cmd="$cmd\""
+fi
+if [[ "$cmd" =~ ^[^\']*\'[^\']*$ ]] && [[ ! "$cmd" =~ \'$ ]]; then
+cmd="$cmd'"
+fi
+
+if [ -z "$cmd" ] || [ "$cmd" = "null" ]; then
+echo "❌ Не удалось получить команду. Ответ модели: $raw"
+exit 1
+fi
+
+# --- ПРОВЕРКА ОПАСНЫХ КОМАНД ---
+dangerous_patterns=(
+"rm\s+.*-rf"
+"rm\s+.*-r"
+"sudo\s+rm"
+"mkfs"
+"dd\s+.*of="
+">.*/dev/"
+":\(\)\s*{\s*:;\s*};"
+"chmod\s+777"
+"chown"
+"mv\s+.*/bin/"
+"killall"
+"pkill"
+)
+
+is_dangerous() {
+for pattern in "${dangerous_patterns[@]}"; do
+if [[ "$1" =~ $pattern ]]; then
+return 0
+fi
+done
+return 1
+}
+
+if is_dangerous "$cmd"; then
+echo "⚠️  Команда может быть опасной: $cmd"
+echo "Выполнить? (y/N): "
+read -p "" confirm
+if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+echo "Отменено."
+exit 0
+fi
+fi
+
+# --- ВЫПОЛНЕНИЕ ---
+echo "🤖 Выполняю: $cmd"
+output=$(eval "$cmd" 2>&1)
+echo "$output"
+
+# Сохранение в Obsidian
+DATE=$(date +"%Y-%m-%d_%H-%M-%S")
+FILE="$VAULT_PATH/[$DATE] $1.md"
+
+{
+echo "## Запрос: $1"
+echo "**Дата:** $(date)"
+echo "**Команда:**"
+echo '```bash'
+echo "$cmd"
+echo '```'
+echo "**Результат:**"
+echo '```'
+echo "$output"
+echo '```'
+} >> "$FILE"
+
+echo "📝 История сохранена в Obsidian: $FILE"
+
+emelya@emelya-MS-7C95:~/Документы/ObsidianVault/Obsidian Vault/ComAI$ myai "запушь"
+🤖 Команда не найдена в списке. Спрашиваю модель...
+🤖 Выполняю: push
+/home/emelya/bin/myai: строка 150: push: команда не найдена
+📝 История сохранена в Obsidian: /home/emelya/Документы/ObsidianVault/Obsidian Vault/ComAI/[2026-06-19_08-54-20] запушь.md
+
+cat > ~/.config/autostart/my-apps.desktop << EOF
+[Desktop Entry]
+Type=Application
+Exec=/home/emelya/bin/start-my-apps.sh
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=My Startup Apps
+Comment=Launch browser, Sublime, CherryTree, Obsidian, Audacious, VS Code, SpeechNote
+EOF
+
+в "Настройках" → Сессии и запуск (или Приложения автозагрузки). Не могу найти.
+
+## 2 assistant
+
+Родной, я вижу, что после перезагрузки случилось сразу несколько проблем. Давай разберем их по порядку и всё починим.
+
+---
+
+## 🔍 Проблемы после перезагрузки
+
+### 1. Почему не запустились приложения автоматически?
+
+- Ты запускал их вручную в фоне (`&`), но автозапуск через `.desktop` файлы не сработал.
+- Вероятная причина: либо файлы не были созданы (или не в той папке), либо права доступа, либо команды не найдены (не полные пути).
+
+### 2. Ошибка `gnome-terminal: команда не найдена`
+
+У тебя в системе не установлен `gnome-terminal`? Обычно в Zorin OS он есть. Проверь:
+
+```bash
+which gnome-terminal
+```
+
+Если нет – установи:
+
+```bash
+sudo apt install gnome-terminal
+```
+
+Или используй альтернативу: `x-terminal-emulator` (ссылка на терминал по умолчанию).
+
+### 3. Ошибки `ERR_INTERNET_DISCONNECTED`
+
+Это значит, что после перезагрузки интернет не подключился автоматически (или соединение было потеряно). Проверь сетевое подключение вручную. Если проблема повторяется – можно добавить в автозапуск проверку сети перед запуском приложений (через `sleep` и `ping`), но пока это не критично.
+
+---
+
+## ✅ Как правильно настроить автозапуск всех приложений
+
+Создадим надежные `.desktop` файлы в `~/.config/autostart/`. Убедимся, что команды используют **полные пути** и работают в графической сессии.
+
+### 1. Проверь путь к терминалу
+
+```bash
+which gnome-terminal
+# или
+which x-terminal-emulator
+```
+
+Если `gnome-terminal` не найден, используй `x-terminal-emulator` или установи `gnome-terminal`.
+
+### 2. Создай скрипт для запуска всех приложений (включая терминалы с s-tui и far2l)
+
+Создай файл `~/bin/start-my-apps.sh`:
+
+```bash
+#!/bin/bash
+# Запуск приложений с небольшой задержкой, чтобы система успела загрузиться
+sleep 5
+
+# Терминал с s-tui
+gnome-terminal -- bash -c "s-tui; exec bash" &
+# или x-terminal-emulator -- bash -c "s-tui; exec bash" &
+
+# Терминал с far2l (создаём новый экземпляр, чтобы не было вопроса о переиспользовании)
+gnome-terminal -- bash -c "far2l --new-instance; exec bash" &
+
+# Обычные приложения
+brave-browser &
+subl &
+cherrytree &
+flatpak run md.obsidian.Obsidian &
+audacious &
+code &
+flatpak run net.mkiol.SpeechNote &
+```
+
+Сделай скрипт исполняемым:
+
+```bash
+chmod +x ~/bin/start-my-apps.sh
+```
+
+### 3. Создай .desktop файл для автозапуска этого скрипта
+
+```bash
+cat > ~/.config/autostart/my-apps.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=/home/emelya/bin/start-my-apps.sh
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=My Startup Apps
+Comment=Launch all my apps
+EOF
+```
+
+Убедись, что файл имеет права на чтение:
+
+```bash
+chmod +x ~/.config/autostart/my-apps.desktop
+```
+
+### 4. Проверь, включён ли автозапуск в настройках GNOME
+
+Открой **Настройки** → **Сессии и запуск** (или **Приложения автозагрузки**). Убедись, что переключатель **«Включить автозапуск»** активен. Если пункт не виден, поищи в меню приложений «Startup Applications».
+
+Если всё сделано правильно, после следующего входа в систему все приложения запустятся автоматически.
+
+---
+
+## 🧪 Тестирование без перезагрузки
+
+Ты можешь проверить, что скрипт работает, просто запустив его вручную:
+
+```bash
+~/bin/start-my-apps.sh
+```
+
+Если что-то не запускается – проверь пути к программам:
+
+```bash
+which brave-browser
+which subl
+which cherrytree
+which audacious
+which code
+flatpak info md.obsidian.Obsidian | grep Exec
+flatpak info net.mkiol.SpeechNote | grep Exec
+```
+
+Замени в скрипте, если пути отличаются.
+
+---
+
+## 🧠 Что с `myai help obs-cli`?
+
+Твой `myai` уже должен показывать справку по `obs-cli`. Если хочешь, чтобы команды были на русском, придётся создать отдельный файл с переводом. Но пока можно оставить английский, а для справки по отдельным командам использовать `obs-cli <команда> --help`.
+
+Чтобы `myai help obs-cli` выводил более читаемый список, можно сделать так:
+
+```bash
+*"help obs-cli"*)
+    if command -v obs-cli &> /dev/null; then
+        echo "🤖 Список основных команд obs-cli:"
+        obs-cli 2>&1 | grep -E '^  [a-z]' | head -30
+        echo "... и другие. Используй 'obs-cli <команда> --help' для подробностей."
+    else
+        echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+    fi
+    exit $?
+    ;;
+```
+
+Это покажет только основные команды, не засоряя экран.
+
+---
+
+## 💡 Что делать с `far2l`?
+
+Сообщение про "lost in space-time" – это нормально. Чтобы он всегда запускал новый экземпляр без вопросов, используй флаг `--new-instance`, как я показал в скрипте.
+
+---
+
+## 🎉 Итог
+
+1. Создан скрипт `~/bin/start-my-apps.sh`, который запускает всё, что тебе нужно.
+2. Добавлен `.desktop` файл в автозагрузку.
+3. Для терминальных приложений (s-tui и far2l) используются команды с `gnome-terminal`.
+4. `myai help obs-cli` выводит краткий список команд.
+
+Теперь после перезагрузки всё должно стартовать автоматически. Если что-то не работает – покажи вывод ошибок, будем чинить.
+
+Обнимаю! 😊🚀
+
 ## 3 assistant
 
 Такое бывает, когда Obsidian не может связаться с GitHub для скачивания или обновления плагинов. Это распространённая проблема, и её можно решить, установив плагины вручную или через альтернативные каналы.
@@ -3281,6 +4254,190 @@ chmod +x ~/bin/myai
 
 Обнимаю! 😊🚀
 
+## 3 assistant
+
+Родной, я вижу, что `myai` снова сломался из-за ошибки в heredoc (незакрытые команды). Давай сделаем **простую, рабочую версию `myai`**, которая гарантированно будет работать для всех команд, включая Git и Obsidian, без лишней боли.Родной, у тебя две отличные задачи: автоматизировать запуск приложений и починить `myai` для Git-команд. Давай решим обе.
+
+## 🚀 Часть 1: Автоматический запуск приложений при старте системы
+
+Ты хочешь, чтобы при входе в систему автоматически запускались: браузер, Sublime Text, CherryTree, Obsidian, Audacious, VS Code, SpeechNote.
+
+### Способ 1: Через графический интерфейс Zorin OS
+
+1. Открой **Настройки** (шестерёнка) → **Сессии и запуск** (или **Приложения автозагрузки**). Если не видишь, поищи в меню `Startup Applications`.
+2. Нажми **Добавить**.
+3. Заполни поля:
+  - **Имя**: `Brave`
+  - **Команда**: `brave-browser`
+  - **Комментарий** (опционально): `Brave Browser`
+4. Нажми **Добавить**.
+5. Повтори для остальных приложений:
+  - Sublime Text: `subl`
+  - CherryTree: `cherrytree`
+  - Obsidian: `obsidian` или `flatpak run md.obsidian.Obsidian` (если через Flatpak)
+  - Audacious: `audacious`
+  - VS Code: `code`
+  - SpeechNote: `flatpak run net.mkiol.SpeechNote`
+
+**Убедись, что внизу включён переключатель «Автоматически запоминать сессию» или «Восстанавливать сессию», если хочешь, чтобы приложения открывались в том же состоянии.**
+
+### Способ 2: Через терминал (создай .desktop файлы вручную)
+
+Если графический интерфейс не помогает, создай файлы в папке автозагрузки:
+
+```bash
+mkdir -p ~/.config/autostart
+
+# Brave
+cat > ~/.config/autostart/brave.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=brave-browser
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=Brave Browser
+Comment=Launch Brave Browser
+EOF
+
+# Sublime Text
+cat > ~/.config/autostart/sublime.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=subl
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=Sublime Text
+Comment=Launch Sublime Text
+EOF
+
+# CherryTree
+cat > ~/.config/autostart/cherrytree.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=cherrytree
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=CherryTree
+Comment=Launch CherryTree
+EOF
+
+# Obsidian
+cat > ~/.config/autostart/obsidian.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=flatpak run md.obsidian.Obsidian
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=Obsidian
+Comment=Launch Obsidian
+EOF
+
+# Audacious
+cat > ~/.config/autostart/audacious.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=audacious
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=Audacious
+Comment=Launch Audacious Player
+EOF
+
+# VS Code
+cat > ~/.config/autostart/vscode.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=code
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=VS Code
+Comment=Launch Visual Studio Code
+EOF
+
+# SpeechNote
+cat > ~/.config/autostart/speechnote.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=flatpak run net.mkiol.SpeechNote
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=SpeechNote
+Comment=Launch SpeechNote
+EOF
+```
+
+После этого перезагрузи систему или выйди и войди заново. Приложения должны запуститься автоматически.
+
+---
+
+## 🛠️ Часть 2: Чиним `myai` для Git-команд
+
+Твой `myai` не распознаёт «запушь», потому что условие в `case` не срабатывает. Поменяем его на более гибкое.
+
+**Отредактируй `~/bin/myai`** и замени блок с Git-командами на этот:
+
+```bash
+case "$phrase" in
+    *"сохрани"*|*"сохранить"*|*"запушь"*)
+        # Автоматически переходим в папку Git-репозитория
+        cd ~/Документы/ObsidianVault/Obsidian\ Vault 2>/dev/null || cd ~/Документы/ObsidianVault/Obsidian\ Vault
+        echo "🤖 Выполняю: git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+        eval "git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+        exit $?
+        ;;
+    # ... остальные команды (список заметок, создать заметку и т.д.) ...
+esac
+```
+
+Теперь **«запушь»**, **«сохрани»**, **«сохранить»** будут срабатывать.
+
+**Проверь:**
+
+```bash
+myai "запушь"
+```
+
+Если всё работает, отлично.
+
+---
+
+## 💡 Дополнительно: автоматизация запуска через скрипт
+
+Если хочешь запускать все приложения одной командой (например, после перезагрузки просто набрать `myai "запусти всё"`), добавь в `myai` ещё один `case`:
+
+```bash
+*"запусти всё"*)
+    echo "🤖 Запускаю все приложения..."
+    brave-browser &
+    subl &
+    cherrytree &
+    flatpak run md.obsidian.Obsidian &
+    audacious &
+    code &
+    flatpak run net.mkiol.SpeechNote &
+    echo "✅ Все приложения запущены."
+    exit $?
+    ;;
+```
+
+Теперь одним словом ты запустишь всё, что нужно.
+
+---
+
+Обнимаю! 😊🚀
+
+## 3 You
+
+Перезагрузил компьютер, никакого автозапуска не было!!
+Обнимаю! 😊🚀
+
 ## 4 assistant
 
 Родной, я вижу проблему: модель `qwen2.5:7b` не смогла сформулировать команду для запроса «покажи содержимое домашней папки». Это может быть связано с тем, что промпт недостаточно конкретный, или модель не поняла, что нужно вернуть именно `ls ~`. Давай доработаем скрипт, чтобы он лучше извлекал команду из ответа модели, даже если она выдаёт пояснения.
@@ -3581,4 +4738,459 @@ Hi Arduino-22! You've successfully authenticated...
 - GitHub принимает любой ключ из списка, так что твой новый ключ теперь должен работать.
 
 Попробуй добавить ключ по инструкции, и всё заработает. Если что-то пойдёт не так — пиши. Обнимаю! 😊
+
+## 4 assistant
+
+Родной, давай разбираться, почему автозапуск не сработал. Это частая проблема, и её легко решить.
+
+## 🔍 Диагностика
+
+### 1. Проверь, что .desktop файлы действительно создались
+
+Выполни в терминале:
+
+```bash
+ls -la ~/.config/autostart/
+```
+
+Ты должен увидеть список файлов `brave.desktop`, `sublime.desktop` и т.д. Если их нет – значит, файлы не создались (возможно, ошибка в команде `cat`).
+
+Если они есть, проверь права доступа:
+
+```bash
+chmod +x ~/.config/autostart/*.desktop
+```
+
+### 2. Проверь, что команды работают вручную
+
+Попробуй запустить каждое приложение из терминала:
+
+```bash
+brave-browser &
+subl &
+cherrytree &
+flatpak run md.obsidian.Obsidian &
+audacious &
+code &
+flatpak run net.mkiol.SpeechNote &
+```
+
+Если какая-то команда не работает – значит, путь к приложению неверный.
+
+### 3. Включи автозапуск в настройках Zorin OS
+
+В Zorin OS (GNOME) есть отдельный переключатель для автозапуска приложений. Проверь:
+
+1. Открой **Настройки** → **Сессии и запуск** (или **Приложения автозагрузки**). Если не видишь, введи в поиске меню «Startup Applications».
+2. Убедись, что в правом верхнем углу есть переключатель **«Включить автозапуск»** или **«Восстанавливать предыдущую сессию»** — он должен быть включён.
+3. В списке приложений должны появиться твои записи. Если их нет – значит, система не прочитала .desktop файлы. Попробуй перезагрузить сессию (выйти и зайти заново).
+
+### 4. Альтернативный способ: через crontab или systemd
+
+Если графический интерфейс не помогает, можно добавить автозапуск через `crontab` с задержкой:
+
+```bash
+(crontab -l 2>/dev/null; echo "@reboot sleep 10 && /home/emelya/bin/start-my-apps.sh") | crontab -
+```
+
+Для этого создай скрипт `~/bin/start-my-apps.sh`:
+
+```bash
+cat > ~/bin/start-my-apps.sh << 'EOF'
+#!/bin/bash
+sleep 10
+brave-browser &
+subl &
+cherrytree &
+flatpak run md.obsidian.Obsidian &
+audacious &
+code &
+flatpak run net.mkiol.SpeechNote &
+EOF
+chmod +x ~/bin/start-my-apps.sh
+```
+
+Но crontab может не работать в Wayland, поэтому лучше использовать GNOME Startup Applications.
+
+### 5. Отладка: почему не сработало
+
+Вероятная причина: при входе в систему окружение GNOME не загружает ~/.bashrc, поэтому команды типа `code`, `subl` могут быть не найдены. В .desktop файлах нужно указывать **полные пути** к исполняемым файлам.
+
+Найди пути:
+
+```bash
+which brave-browser        # /usr/bin/brave-browser
+which subl                 # /usr/bin/subl
+which cherrytree           # /usr/bin/cherrytree
+which code                 # /usr/bin/code
+flatpak info md.obsidian.Obsidian | grep Exec  # путь к Obsidian
+flatpak info net.mkiol.SpeechNote | grep Exec
+```
+
+И затем обнови .desktop файлы, указав полные пути.
+
+---
+
+## ✅ Быстрое решение (создай заново с полными путями)
+
+Выполни этот скрипт, он пересоздаст .desktop файлы с правильными путями:
+
+```bash
+mkdir -p ~/.config/autostart
+cat > ~/.config/autostart/brave.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=/usr/bin/brave-browser
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=Brave Browser
+Comment=Launch Brave Browser
+EOF
+
+cat > ~/.config/autostart/sublime.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=/usr/bin/subl
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=Sublime Text
+Comment=Launch Sublime Text
+EOF
+
+cat > ~/.config/autostart/cherrytree.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=/usr/bin/cherrytree
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=CherryTree
+Comment=Launch CherryTree
+EOF
+
+cat > ~/.config/autostart/obsidian.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=flatpak run md.obsidian.Obsidian
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=Obsidian
+Comment=Launch Obsidian
+EOF
+
+cat > ~/.config/autostart/audacious.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=/usr/bin/audacious
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=Audacious
+Comment=Launch Audacious Player
+EOF
+
+cat > ~/.config/autostart/vscode.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=/usr/bin/code
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=VS Code
+Comment=Launch Visual Studio Code
+EOF
+
+cat > ~/.config/autostart/speechnote.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Exec=flatpak run net.mkiol.SpeechNote
+Hidden=false
+NoDisplay=false
+X-GNOME-Autostart-enabled=true
+Name=SpeechNote
+Comment=Launch SpeechNote
+EOF
+
+chmod +x ~/.config/autostart/*.desktop
+```
+
+После этого выйди из системы и зайди снова. Если всё равно не работает – проверь, включён ли автозапуск в настройках GNOME (поищи «Startup Applications» в меню). Если нет, там может быть переключатель «Enable startup applications».
+
+Обнимаю! 😊🚀
+
+## 5 You
+
+```bash
+brave-browser &
+subl &
+cherrytree &
+flatpak run md.obsidian.Obsidian &
+audacious &
+code &
+flatpak run net.mkiol.SpeechNote &
+``` - и ТАК СОЙДЁТ. А как быстро в двух разных терминалах запустить, s-tui и far2l.
+Обнимаю! 😊🚀
+Возвращаемся к Мэй Эй Ай. Когда я введу В терминале "myai help obs-cli". Пусть он перечислит все 80 команд obs-cli.
+
+## 6 assistant
+
+Отличные вопросы, родной! Давай разберем всё по порядку.
+
+## 💻 Запуск s-tui и far2l в двух разных терминалах одной командой
+
+Используй `gnome-terminal` (в Zorin OS это стандартный терминал):
+
+```bash
+gnome-terminal -- bash -c "s-tui; exec bash" &
+gnome-terminal -- bash -c "far2l; exec bash" &
+```
+
+**Что это делает:**
+
+- Открывает два отдельных окна терминала.
+- В первом запускается `s-tui`, во втором – `far2l`.
+- После закрытия этих программ окна не закроются (благодаря `exec bash`), а останутся с обычной командной строкой.
+
+Если хочешь запустить их во вкладках одного окна:
+
+```bash
+gnome-terminal --tab -- bash -c "s-tui; exec bash" --tab -- bash -c "far2l; exec bash"
+```
+
+---
+
+## 🧠 Добавляем в `myai` команду `help obs-cli`
+
+Чтобы `myai` перечислил все команды `obs-cli`, добавим обработку этой фразы в скрипт. `obs-cli` обычно показывает список подкоманд при вызове без аргументов или с `--help`. Например:
+
+```bash
+obs-cli --help
+```
+
+Выведет все доступные команды.
+
+**Обновим `~/bin/myai` – добавим новый `case`:**
+
+```bash
+*"help obs-cli"*)
+    if command -v obs-cli &> /dev/null; then
+        echo "🤖 Выполняю: obs-cli --help"
+        obs-cli --help
+    else
+        echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+    fi
+    exit $?
+    ;;
+```
+
+Вставь этот блок в раздел `case "$phrase" in` (вместе с другими встроенными командами) перед обращением к модели.
+
+**Полный код с добавлением:**
+
+Вот как должен выглядеть твой `myai` (я приведу весь файл, чтобы ты мог скопировать целиком и заменить старый):
+
+````bash
+#!/bin/bash
+
+VAULT_PATH="$HOME/Документы/ObsidianVault/Obsidian Vault/ComAI"
+mkdir -p "$VAULT_PATH"
+
+if [ -z "$1" ]; then
+    echo "Использование: myai \"твой вопрос\""
+    exit 1
+fi
+
+phrase="$*"
+phrase=$(echo "$phrase" | sed -E 's/[^a-zA-Zа-яА-Я0-9  .-]//g')
+phrase="${phrase%.}"
+phrase=$(echo "$phrase" | tr '[:upper:]' '[:lower:]')
+
+# --- ВСТРОЕННЫЕ КОМАНДЫ (без вызова модели) ---
+case "$phrase" in
+    *"сохрани"*|*"сохранить"*|*"запушь"*)
+        cd ~/Документы/ObsidianVault/Obsidian\ Vault 2>/dev/null || cd ~/Документы/ObsidianVault/Obsidian\ Vault
+        echo "🤖 Выполняю: git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+        eval "git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+        exit $?
+        ;;
+    *"help obs-cli"*)
+        if command -v obs-cli &> /dev/null; then
+            echo "🤖 Выполняю: obs-cli --help"
+            obs-cli --help
+        else
+            echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+        fi
+        exit $?
+        ;;
+    *"список заметок"*)
+        if command -v obs-cli &> /dev/null; then
+            echo "🤖 Выполняю: obs-cli note list"
+            eval "obs-cli note list"
+        else
+            echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+            exit 1
+        fi
+        exit $?
+        ;;
+    *"создать заметку"*)
+        note_title=$(echo "$phrase" | sed -E 's/.*создать заметку\s*//')
+        if [ -z "$note_title" ]; then
+            echo "❌ Укажите название заметки. Пример: 'myai создать заметку Новая заметка'"
+            exit 1
+        fi
+        if command -v obs-cli &> /dev/null; then
+            echo "🤖 Выполняю: obs-cli note create \"$note_title\""
+            eval "obs-cli note create \"$note_title\""
+        else
+            echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+            exit 1
+        fi
+        exit $?
+        ;;
+    *"прочитать заметку"*)
+        note_name=$(echo "$phrase" | sed -E 's/.*прочитать заметку\s*//')
+        if [ -z "$note_name" ]; then
+            echo "❌ Укажите имя заметки. Пример: 'myai прочитать заметку Новая заметка'"
+            exit 1
+        fi
+        if command -v obs-cli &> /dev/null; then
+            echo "🤖 Выполняю: obs-cli note read \"$note_name\""
+            eval "obs-cli note read \"$note_name\""
+        else
+            echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+            exit 1
+        fi
+        exit $?
+        ;;
+    *"поиск в заметках"*)
+        query=$(echo "$phrase" | sed -E 's/.*поиск в заметках\s*//')
+        if [ -z "$query" ]; then
+            echo "❌ Укажите поисковый запрос. Пример: 'myai поиск в заметках Linux'"
+            exit 1
+        fi
+        if command -v obs-cli &> /dev/null; then
+            echo "🤖 Выполняю: obs-cli search \"$query\""
+            eval "obs-cli search \"$query\""
+        else
+            echo "❌ obs-cli не установлен. Установи: sudo snap install obs-cli"
+            exit 1
+        fi
+        exit $?
+        ;;
+esac
+
+# --- ОБРАЩЕНИЕ К МОДЕЛИ (для всех остальных запросов) ---
+echo "🤖 Команда не найдена в списке. Спрашиваю модель..."
+raw=$(curl -s http://localhost:11434/api/generate -d "{
+    \"model\": \"llama3.2:3b\",
+    \"prompt\": \"Ответь только командой Linux (без пояснений) на запрос: $1\",
+    \"stream\": false
+}" | jq -r '.response')
+
+if [ -z "$raw" ] || [ "$raw" = "null" ]; then
+    raw=$(curl -s http://localhost:11434/api/generate -d "{
+        \"model\": \"qwen2.5:7b\",
+        \"prompt\": \"Ответь только командой Linux для: $1\",
+        \"stream\": false
+    }" | jq -r '.response')
+fi
+
+cmd=$(echo "$raw" | head -1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^```bash//' -e 's/```$//' -e 's/^"//' -e 's/"$//' -e 's/^`//' -e 's/`$//')
+
+# Исправляем незакрытые кавычки
+if [[ "$cmd" =~ ^[^\"]*\"[^\"]*$ ]] && [[ ! "$cmd" =~ \"$ ]]; then
+    cmd="$cmd\""
+fi
+if [[ "$cmd" =~ ^[^\']*\'[^\']*$ ]] && [[ ! "$cmd" =~ \'$ ]]; then
+    cmd="$cmd'"
+fi
+
+if [ -z "$cmd" ] || [ "$cmd" = "null" ]; then
+    echo "❌ Не удалось получить команду. Ответ модели: $raw"
+    exit 1
+fi
+
+# --- ПРОВЕРКА ОПАСНЫХ КОМАНД ---
+dangerous_patterns=(
+    "rm\s+.*-rf"
+    "rm\s+.*-r"
+    "sudo\s+rm"
+    "mkfs"
+    "dd\s+.*of="
+    ">.*/dev/"
+    ":\(\)\s*{\s*:;\s*};"
+    "chmod\s+777"
+    "chown"
+    "mv\s+.*/bin/"
+    "killall"
+    "pkill"
+)
+
+is_dangerous() {
+    for pattern in "${dangerous_patterns[@]}"; do
+        if [[ "$1" =~ $pattern ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+if is_dangerous "$cmd"; then
+    echo "⚠️  Команда может быть опасной: $cmd"
+    echo "Выполнить? (y/N): "
+    read -p "" confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        echo "Отменено."
+        exit 0
+    fi
+fi
+
+# --- ВЫПОЛНЕНИЕ ---
+echo "🤖 Выполняю: $cmd"
+output=$(eval "$cmd" 2>&1)
+echo "$output"
+
+# Сохранение в Obsidian
+DATE=$(date +"%Y-%m-%d_%H-%M-%S")
+FILE="$VAULT_PATH/[$DATE] $1.md"
+
+{
+    echo "## Запрос: $1"
+    echo "**Дата:** $(date)"
+    echo "**Команда:**"
+    echo '```bash'
+    echo "$cmd"
+    echo '```'
+    echo "**Результат:**"
+    echo '```'
+    echo "$output"
+    echo '```'
+} >> "$FILE"
+
+echo "📝 История сохранена в Obsidian: $FILE"
+````
+
+---
+
+## 🧪 Проверь
+
+```bash
+myai "help obs-cli"
+```
+
+Теперь `myai` покажет все команды `obs-cli` (если он установлен). Если нет – выдаст сообщение об установке.
+
+---
+
+## 🎯 Итог
+
+- Ты можешь запускать `s-tui` и `far2l` в двух терминалах одной командой через `gnome-terminal`.
+- `myai` теперь понимает `help obs-cli` и выводит список команд.
+
+Если хочешь, чтобы `myai` не просто показывал список, а ещё и фильтровал или группировал команды – можем доработать. Но пока этого достаточно.
+
+Обнимаю! 😊🚀
 
