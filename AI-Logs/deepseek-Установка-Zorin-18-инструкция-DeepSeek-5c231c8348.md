@@ -4,7 +4,7 @@ syncnos:
   source: "deepseek"
   conversationKey: "a_chat_s_e496dd2b-82e9-4fe0-a4de-fabbe77ab154"
   schemaVersion: 1
-  lastSyncedAt: 1782196199862
+  lastSyncedAt: 1782258788443
 ---
 
 # Conversations
@@ -1381,6 +1381,542 @@ show_help() {
 
 Теперь всё честно и работает на твоих реальных командах! Обнимаю! 😊🚀
 
+## 0 assistant
+
+Родной, ты почти всё сделал правильно, но есть одна критическая ошибка: **`NFQWS_ENABLE=1`**, но в секции `NFQWS_OPT` ты переопределил её после того, как она уже была задана. Нужно либо оставить одну строку, либо закомментировать одну из них.
+
+Также нужно добавить Telegram в списки обработки, чтобы Zapret точно применял к нему настройки.
+
+## ✅ Исправленный конфиг (скопируй и замени всё содержимое)
+
+Открой файл заново:
+
+```bash
+sudo nano /opt/zapret/config
+```
+
+И замени его содержимое на это:
+
+```bash
+# this file is included from init scripts
+# change values here
+
+# can help in case /tmp has not enough space
+#TMPDIR=/opt/zapret/tmp
+
+# redefine user for zapret daemons. required on Keenetic
+#WS_USER=nobody
+
+# override firewall type : iptables,nftables,ipfw
+FWTYPE=nftables
+# nftables only : set this to 0 to use pre-nat mode. default is post-nat.
+# pre-nat mode disables some bypass techniques for forwarded traffic but allows to see client IP addresses in debug log
+#POSTNAT=0
+
+# options for ipsets
+# maximum number of elements in sets. also used for nft sets
+SET_MAXELEM=522288
+# too low hashsize can cause memory allocation errors on low RAM systems , even if RAM is enough
+# too large hashsize will waste lots of RAM
+IPSET_OPT="hashsize 262144 maxelem $SET_MAXELEM"
+# dynamically generate additional ip. $1 = ipset/nfset/table name
+#IPSET_HOOK="/etc/zapret.ipset.hook"
+
+# options for ip2net. "-4" or "-6" auto added by ipset create script
+IP2NET_OPT4="--prefix-length=22-30 --v4-threshold=3/4"
+IP2NET_OPT6="--prefix-length=56-64 --v6-threshold=5"
+# options for auto hostlist
+AUTOHOSTLIST_RETRANS_THRESHOLD=3
+AUTOHOSTLIST_FAIL_THRESHOLD=3
+AUTOHOSTLIST_FAIL_TIME=60
+# 1 = debug autohostlist positives to ipset/zapret-hosts-auto-debug.log
+AUTOHOSTLIST_DEBUGLOG=0
+
+# number of parallel threads for domain list resolves
+MDIG_THREADS=30
+
+# ipset/*.sh can compress large lists
+GZIP_LISTS=1
+# command to reload ip/host lists after update
+# comment or leave empty for auto backend selection : ipset or ipfw if present
+# on BSD systems with PF no auto reloading happens. you must provide your own command
+# set to "-" to disable reload
+#LISTS_RELOAD="pfctl -f /etc/pf.conf"
+
+# mark bit used by nfqws to prevent loop
+DESYNC_MARK=0x40000000
+DESYNC_MARK_POSTNAT=0x20000000
+
+# do not pass outgoing traffic to tpws/nfqws not marked with this bit
+# this setting allows to write your own rules to limit traffic that should be fooled
+# for example based on source IP or incoming interface name
+# no filter if not defined
+#FILTER_MARK=0x10000000
+
+TPWS_SOCKS_ENABLE=0
+# tpws socks listens on this port on localhost and LAN interfaces
+TPPORT_SOCKS=987
+# use <HOSTLIST> and <HOSTLIST_NOAUTO> placeholders to engage standard hostlists and autohostlist in ipset dir
+# hostlist markers are replaced to empty string if MODE_FILTER does not satisfy
+# <HOSTLIST_NOAUTO> appends ipset/zapret-hosts-auto.txt as normal list
+TPWS_SOCKS_OPT="
+--filter-tcp=80 --methodeol <HOSTLIST> --new
+--filter-tcp=443 --split-pos=1,midsld --disorder <HOSTLIST>
+"
+
+TPWS_ENABLE=0
+TPWS_PORTS=80,443
+# use <HOSTLIST> and <HOSTLIST_NOAUTO> placeholders to engage standard hostlists and autohostlist in ipset dir
+# hostlist markers are replaced to empty string if MODE_FILTER does not satisfy
+# <HOSTLIST_NOAUTO> appends ipset/zapret-hosts-auto.txt as normal list
+TPWS_OPT="
+--filter-tcp=80 --methodeol <HOSTLIST> --new
+--filter-tcp=443 --split-pos=1,midsld --disorder <HOSTLIST>
+"
+
+NFQWS_ENABLE=1
+# redirect outgoing traffic with connbytes limiter applied in both directions.
+NFQWS_PORTS_TCP=80,443
+NFQWS_PORTS_UDP=443
+# PKT_OUT means connbytes dir original
+# PKT_IN means connbytes dir reply
+# this is --dpi-desync-cutoff=nX kernel mode implementation for linux. it saves a lot of CPU.
+NFQWS_TCP_PKT_OUT=9
+NFQWS_TCP_PKT_IN=3
+NFQWS_UDP_PKT_OUT=9
+NFQWS_UDP_PKT_IN=0
+# redirect outgoing traffic without connbytes limiter and incoming with connbytes limiter
+# normally it's needed only for stateless DPI that matches every packet in a single TCP session
+# typical example are plain HTTP keep alives
+# this mode can be very CPU consuming. enable with care !
+#NFQWS_PORTS_TCP_KEEPALIVE=
+#NFQWS_PORTS_UDP_KEEPALIVE=
+# use <HOSTLIST> and <HOSTLIST_NOAUTO> placeholders to engage standard hostlists and autohostlist in ipset dir
+# hostlist markers are replaced to empty string if MODE_FILTER does not satisfy
+# <HOSTLIST_NOAUTO> appends ipset/zapret-hosts-auto.txt as normal list
+NFQWS_OPT="--dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-fooling=badseq,md5sig"
+
+# none,ipset,hostlist,autohostlist
+MODE_FILTER=hostlist
+
+# donttouch,none,software,hardware
+FLOWOFFLOAD=none
+
+# openwrt: specify networks to be treated as LAN. default is "lan"
+#OPENWRT_LAN="lan lan2 lan3"
+# openwrt: specify networks to be treated as WAN. default wans are interfaces with default route
+#OPENWRT_WAN4="wan vpn"
+#OPENWRT_WAN6="wan6 vpn6"
+
+# for routers based on desktop linux and macos. has no effect in openwrt.
+# CHOOSE LAN and optinally WAN/WAN6 NETWORK INTERFACES
+# or leave them commented if its not router
+# it's possible to specify multiple interfaces like this : IFACE_LAN="eth0 eth1 eth2"
+# if IFACE_WAN6 is not defined it take the value of IFACE_WAN
+#IFACE_LAN=eth0
+#IFACE_WAN=eth1
+#IFACE_WAN6="ipsec0 wireguard0 he_net"
+
+# should start/stop command of init scripts apply firewall rules ?
+# not applicable to openwrt with firewall3+iptables
+INIT_APPLY_FW=1
+# firewall apply hooks
+#INIT_FW_PRE_UP_HOOK="/etc/firewall.zapret.hook.pre_up"
+#INIT_FW_POST_UP_HOOK="/etc/firewall.zapret.hook.post_up"
+#INIT_FW_PRE_DOWN_HOOK="/etc/firewall.zapret.hook.pre_down"
+#INIT_FW_POST_DOWN_HOOK="/etc/firewall.zapret.hook.post_down"
+
+# do not work with ipv4
+#DISABLE_IPV4=1
+# do not work with ipv6
+DISABLE_IPV6=1
+
+# drop icmp time exceeded messages for nfqws tampered connections
+# in POSTNAT mode this can interfere with default mtr/traceroute in tcp or udp mode. use source port not redirected to nfqws
+# set to 0 if you are not expecting connection breakage due to icmp in response to TCP SYN or UDP
+FILTER_TTL_EXPIRED_ICMP=1
+
+# select which init script will be used to get ip or host list
+# possible values : get_user.sh get_antizapret.sh get_combined.sh get_reestr.sh get_hostlist.sh
+# comment if not required
+#GETLIST=
+# Список доменов для обработки
+LIST_GENERAL="telegram.org,*.telegram.org"
+```
+
+## ✅ Что изменилось
+
+1. **`NFQWS_OPT`** теперь одна строка — та, которую нашёл скрипт (с `multidisorder`).
+2. **`MODE_FILTER=hostlist`** — теперь Zapret будет использовать список доменов из `LIST_GENERAL`.
+3. **`LIST_GENERAL`** содержит домены Telegram.
+4. **`DISABLE_IPV6=1`** оставлено — IPv6 может мешать.
+
+## 🔄 Перезапусти Zapret
+
+```bash
+sudo systemctl restart zapret
+sudo systemctl status zapret   # проверь, что активен
+```
+
+## 📱 Настрой прокси в Telegram
+
+Если после перезапуска QR-код всё ещё не грузится, в Telegram:
+
+- Настройки → Продвинутые → Тип подключения → Собственный прокси.
+- Тип: `SOCKS5`, хост: `127.0.0.1`, порт: `1080`.
+
+Если не работает, попробуй порт `987` (это порт для socks-режима).
+
+Обнимаю! 😊🚀
+
+## 0 assistant
+
+Отлично, родной! Ты на финишной прямой. На скрине видно, что ты почти правильно настроил прокси в Telegram, но в строке статуса написано **«connecting...»** — это значит, что Telegram не может подключиться к прокси. Есть две вероятные причины:
+
+1. **Порт 1080 не слушает.** Zapret по умолчанию не запускает SOCKS-сервер на порту 1080. В твоём конфиге `TPWS_SOCKS_ENABLE=0`, а `TPPORT_SOCKS=987`. Скорее всего, порт 1080 просто не открыт.
+2. **Нужно использовать порт 987.** В твоём конфиге есть `TPPORT_SOCKS=987`, но `TPWS_SOCKS_ENABLE=0`. Это значит, что socks-режим выключен.
+
+## 🛠️ Исправление
+
+### 1. Включи SOCKS-режим в конфиге и укажи порт 1080
+
+Открой конфиг:
+
+```bash
+sudo nano /opt/zapret/config
+```
+
+Найди строки:
+
+```bash
+TPWS_SOCKS_ENABLE=0
+TPPORT_SOCKS=987
+```
+
+Замени их на:
+
+```bash
+TPWS_SOCKS_ENABLE=1
+TPPORT_SOCKS=1080
+```
+
+Сохрани (`Ctrl+O`, Enter) и закрой (`Ctrl+X`).
+
+### 2. Перезапусти Zapret
+
+```bash
+sudo systemctl restart zapret
+```
+
+### 3. Проверь, что порт 1080 теперь слушает
+
+```bash
+sudo netstat -tulpn | grep 1080
+```
+
+Должен появиться процесс, слушающий порт 1080.
+
+### 4. В Telegram настрой прокси
+
+Ты уже почти сделал это, просто убедись, что поля заполнены так:
+
+- **Тип:** `SOCKS5`
+- **Хост:** `127.0.0.1`
+- **Порт:** `1080`
+
+После этого нажми **«Сохранить»** или просто закрой окно. Статус должен смениться с «connecting...» на «connected» или «работает».
+
+### 5. Если всё равно не работает
+
+Попробуй порт `987` (если после включения SOCKS на порту 1080 не заработает):
+
+```bash
+TPPORT_SOCKS=987
+```
+
+И в Telegram укажи порт `987`.
+
+---
+
+После этих действий QR-код должен загрузиться, и ты сможешь войти в Telegram. Обнимаю! 😊🚀
+
+## 0 assistant
+
+Родной, я вижу проблему. Твой код сломался из-за того, что в процессе редактирования ты случайно повредил структуру `case`. Но хорошая новость в том, что это легко исправить.
+
+## 🧐 Почему `help` перестал работать
+
+Ты прав, команда `help` есть в коде, но она не срабатывает. Причина в том, что в твоём `case` есть **дублирующиеся условия** и **неправильный порядок**. Скрипт доходит до условия `"список заметок"*` и, не найдя совпадения, идёт дальше. А `"help"` у тебя идёт после `"mayai help"` и других масок. Если `phrase` содержит `help`, то она не совпадает с `"mayai help"`, и скрипт идёт к следующему условию, где находит `"help"` — но почему-то не срабатывает.
+
+Судя по логам, скрипт уходит в модель, значит, `phrase` **не равна** `help`. Скорее всего, в `phrase` попадает что-то лишнее — пробел, точка или другой символ.
+
+## 🔧 Исправленный код (с отладкой)
+
+Давай добавим отладку и исправим порядок условий. Скопируй этот код в `~/bin/myai`:
+
+````bash
+#!/bin/bash
+
+VAULT_PATH="$HOME/Документы/ObsidianVault/Obsidian Vault/ComAI"
+mkdir -p "$VAULT_PATH"
+
+# --- ГЕНЕРАЦИЯ HTML-СПРАВКИ ---
+generate_html_help() {
+    local html_file="/tmp/myai_help.html"
+    cat > "$html_file" << 'EOF'
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MayAI — Справка</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1e1e2e;
+            color: #cdd6f4;
+            padding: 2rem;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #89b4fa;
+            border-bottom: 2px solid #45475a;
+            padding-bottom: 0.5rem;
+        }
+        h2 {
+            color: #a6e3a1;
+            margin-top: 2rem;
+        }
+        ul {
+            list-style: none;
+            padding-left: 1rem;
+        }
+        li {
+            margin-bottom: 0.5rem;
+            background: #313244;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            display: flex;
+            align-items: baseline;
+        }
+        .cmd {
+            font-weight: bold;
+            color: #f9e2af;
+            min-width: 180px;
+            display: inline-block;
+        }
+        .desc {
+            color: #a6adc8;
+        }
+        .note {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: #45475a;
+            border-radius: 8px;
+            color: #bac2de;
+        }
+        .note strong {
+            color: #f38ba8;
+        }
+    </style>
+</head>
+<body>
+    <h1>🤖 MayAI — Справка по встроенным командам</h1>
+    <p><em>Все команды можно вводить как есть, без кавычек (если фраза содержит пробелы — используй кавычки).</em></p>
+
+    <h2>📁 Управление заметками (работа с файлами)</h2>
+    <ul>
+        <li><span class="cmd">список заметок</span><span class="desc">Показать все .md файлы в хранилище</span></li>
+        <li><span class="cmd">создать заметку &lt;название&gt;</span><span class="desc">Создать новый файл .md с указанным именем</span></li>
+        <li><span class="cmd">прочитать заметку &lt;название&gt;</span><span class="desc">Вывести содержимое заметки в терминал</span></li>
+        <li><span class="cmd">поиск в заметках &lt;текст&gt;</span><span class="desc">Найти все заметки, содержащие указанный текст</span></li>
+        <li><span class="cmd">добавить в заметку &lt;название&gt; &lt;текст&gt;</span><span class="desc">Добавить текст в конец заметки</span></li>
+    </ul>
+
+    <h2>🔄 Git-команды (работа с репозиторием)</h2>
+    <ul>
+        <li><span class="cmd">сохрани / сохранить / запушь</span><span class="desc">Выполнить git add . &amp;&amp; git commit -m "..." &amp;&amp; git push</span></li>
+    </ul>
+
+    <h2>🖥️ Системные команды</h2>
+    <ul>
+        <li><span class="cmd">покажи содержимое домашней папки</span><span class="desc">Выполнить ls -a ~</span></li>
+        <li><span class="cmd">help / список</span><span class="desc">Показать эту справку в терминале (текстовую версию)</span></li>
+        <li><span class="cmd">MayAI Help MayAI</span><span class="desc">Открыть эту же справку в браузере (HTML)</span></li>
+    </ul>
+
+    <h2>🧠 Обращение к ИИ (Ollama)</h2>
+    <ul>
+        <li><span class="cmd">любой другой запрос</span><span class="desc">Будет передан в модель llama3.2:3b (или qwen2.5:7b), которая вернёт команду Linux, и она будет выполнена</span></li>
+    </ul>
+
+    <div class="note">
+        <strong>💡 Подсказка:</strong> Все команды работают мгновенно, без вызова модели. Для сложных задач просто задай вопрос на русском — и ИИ подберёт нужную команду.
+    </div>
+    <p style="margin-top: 2rem; font-size: 0.9rem; color: #6c7086;">Сгенерировано MayAI • $(date)</p>
+</body>
+</html>
+EOF
+    brave-browser "$html_file" 2>/dev/null &
+}
+
+# --- ТЕКСТОВАЯ СПРАВКА ---
+show_help() {
+    echo "📋 Доступные встроенные команды:"
+    echo "  сохрани / сохранить / запушь   — выполнить git add, commit и push"
+    echo "  список заметок                 — показать все .md файлы в хранилище"
+    echo "  создать заметку <название>     — создать новый файл .md"
+    echo "  прочитать заметку <название>   — показать содержимое заметки"
+    echo "  добавить в заметку <название> <текст> — добавить текст в конец заметки"
+    echo "  поиск в заметках <текст>       — найти все заметки, содержащие текст"
+    echo "  help / список                  — показать эту справку"
+    echo "  MayAI Help MayAI               — открыть справку в браузере"
+    echo "  покажи содержимое домашней папки — выполнить ls -a ~"
+    echo "  Для остальных запросов используется ИИ-модель (Ollama)."
+}
+
+if [ -z "$1" ]; then
+    show_help
+    exit 0
+fi
+
+phrase="$*"
+
+# --- НОРМАЛИЗАЦИЯ (обрезаем пробелы, приводим к нижнему регистру, удаляем точку) ---
+phrase=$(echo "$phrase" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | sed 's/\.$//')
+
+# --- ОТЛАДКА (показывает, что в phrase) ---
+echo "DEBUG: phrase='$phrase'" >&2
+
+# --- ВСТРОЕННЫЕ КОМАНДЫ (исправленный порядок) ---
+case "$phrase" in
+    "help"|"список"|"помощь")
+        show_help
+        exit 0
+        ;;
+    "mayai help"|"help mayai"|"html help"|"MayAI Help MayAI")
+        generate_html_help
+        exit $?
+        ;;
+    "сохрани"|"сохранить"|"запушь")
+        cd ~/Документы/ObsidianVault/Obsidian\ Vault 2>/dev/null || cd ~/Документы/ObsidianVault/Obsidian\ Vault
+        echo "🤖 Выполняю: git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+        eval "git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+        exit $?
+        ;;
+    "покажи содержимое домашней папки")
+        echo "🤖 Выполняю: ls -a ~"
+        eval "ls -a ~"
+        exit $?
+        ;;
+    "список заметок"*)
+        echo "📄 Список заметок:"
+        ls -la ~/Документы/ObsidianVault/Obsidian\ Vault/*.md 2>/dev/null | awk '{print $NF}' | sed 's/.*\///'
+        exit $?
+        ;;
+    "создать заметку"*|"создать новую заметку"*)
+        note_title=$(echo "$phrase" | sed -E 's/.*создать заметку\s*//')
+        if [ -z "$note_title" ]; then
+            echo "❌ Укажите название заметки. Пример: 'myai создать заметку Новая заметка'"
+            exit 1
+        fi
+        touch "$HOME/Документы/ObsidianVault/Obsidian Vault/$note_title.md"
+        echo "✅ Заметка '$note_title.md' создана."
+        exit $?
+        ;;
+    "прочитать заметку"*)
+        note_name=$(echo "$phrase" | sed -E 's/прочитать заметку //')
+        if [ -z "$note_name" ]; then
+            echo "❌ Укажите имя заметки. Пример: 'myai прочитать заметку Новая заметка'"
+            exit 1
+        fi
+        cat "$HOME/Документы/ObsidianVault/Obsidian Vault/$note_name.md" 2>/dev/null || echo "❌ Заметка не найдена."
+        exit $?
+        ;;
+    "поиск в заметках"*)
+        query=$(echo "$phrase" | sed -E 's/поиск в заметках //')
+        if [ -z "$query" ]; then
+            echo "❌ Укажите поисковый запрос. Пример: 'myai поиск в заметках Linux'"
+            exit 1
+        fi
+        grep -r "$query" ~/Документы/ObsidianVault/Obsidian\ Vault/ --include="*.md" 2>/dev/null
+        exit $?
+        ;;
+esac
+
+# --- ОБРАЩЕНИЕ К МОДЕЛИ (для всех остальных запросов) ---
+echo "🤖 Команда не найдена в списке. Спрашиваю модель..."
+raw=$(curl -s http://localhost:11434/api/generate -d "{
+    \"model\": \"llama3.2:3b\",
+    \"prompt\": \"Ответь только командой Linux (без пояснений) на запрос: $1\",
+    \"stream\": false
+}" | jq -r '.response')
+
+if [ -z "$raw" ] || [ "$raw" = "null" ]; then
+    raw=$(curl -s http://localhost:11434/api/generate -d "{
+        \"model\": \"qwen2.5:7b\",
+        \"prompt\": \"Ответь только командой Linux для: $1\",
+        \"stream\": false
+    }" | jq -r '.response')
+fi
+
+cmd=$(echo "$raw" | head -1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^```bash//' -e 's/```$//' -e 's/^"//' -e 's/"$//' -e 's/^`//' -e 's/`$//')
+
+# Исправляем незакрытые кавычки
+if [[ "$cmd" =~ ^[^\"]*\"[^\"]*$ ]] && [[ ! "$cmd" =~ \"$ ]]; then
+    cmd="$cmd\""
+fi
+if [[ "$cmd" =~ ^[^\']*\'[^\']*$ ]] && [[ ! "$cmd" =~ \'$ ]]; then
+    cmd="$cmd'"
+fi
+
+if [ -z "$cmd" ] || [ "$cmd" = "null" ]; then
+    echo "❌ Не удалось получить команду. Ответ модели: $raw"
+    exit 1
+fi
+
+echo "🤖 Выполняю: $cmd"
+output=$(eval "$cmd" 2>&1)
+echo "$output"
+
+# --- ЛОГИРОВАНИЕ В OBSIDIAN ---
+DATE=$(date +"%Y-%m-%d_%H-%M-%S")
+FILE="$VAULT_PATH/[$DATE] $1.md"
+
+{
+    echo "## Запрос: $1"
+    echo "**Дата:** $(date)"
+    echo "**Команда:**"
+    echo '```bash'
+    echo "$cmd"
+    echo '```'
+    echo "**Результат:**"
+    echo '```'
+    echo "$output"
+    echo '```'
+} >> "$FILE"
+
+echo "📝 История сохранена в Obsidian: $FILE"
+````
+
+## ✅ Что изменилось
+
+1. **Добавлена отладка** (`echo "DEBUG: phrase='$phrase'" >&2`) — теперь ты видишь, что на самом деле попадает в `phrase`.
+2. **Исправлен порядок условий** — `"help"` теперь идёт первым, до всех масок, чтобы точное совпадение срабатывало раньше.
+3. **Убраны дублирующиеся условия** — оставлены только нужные.
+
+## 🧪 Проверь
+
+Выполни:
+
+```bash
+myai help
+```
+
+Посмотри на вывод `DEBUG`. Если там `help`, то условие сработает. Если там что-то другое — отладка покажет, что именно.
+
+Если `help` по-прежнему не работает, покажи вывод `DEBUG`. Обнимаю! 😊🚀
+
 ## 1 You
 
 emelya@emelya-MS-7C95:~$ MyAI. найди папку "AI-Logs"
@@ -2183,6 +2719,379 @@ To github.com:Arduino-22/obsidian-vault.git
 emelya@emelya-MS-7C95:~$
 
 Почему запись есть о том (chmod: невозможно получить доступ к 'запуск.sh': Нет такого файла или каталога) что чтщ-то невозможно, а о (🤖 Выполняю: git add . && git commit -m "Авто-коммит 2026-06-23 02:33:39" && git push origin main) выполнении нет?
+
+## 1 You
+
+emelya@emelya-MS-7C95:~$ sudo systemctl restart zapret
+sudo systemctl status zapret
+[sudo] пароль для emelya:
+● zapret.service
+Loaded: loaded (/usr/lib/systemd/system/zapret.service; enabled; preset: e>
+Active: active (running) since Tue 2026-06-23 11:30:54 EET; 13ms ago
+Process: 3948 ExecStart=/opt/zapret/init.d/sysv/zapret start (code=exited, >
+Tasks: 1 (limit: 76872)
+Memory: 3.5M (peak: 7.5M)
+CPU: 81ms
+CGroup: /system.slice/zapret.service
+└─3984 /opt/zapret/nfq/nfqws --user=tpws --dpi-desync-fwmark=0x400>
+
+июн 23 11:30:54 emelya-MS-7C95 systemd[1]: Starting zapret.service...
+июн 23 11:30:54 emelya-MS-7C95 zapret[3948]: Starting daemon 3: /opt/zapret/nfq>
+июн 23 11:30:54 emelya-MS-7C95 zapret[3948]: Applying nftables
+июн 23 11:30:54 emelya-MS-7C95 zapret[3948]: Creating ip list table (firewall t>
+июн 23 11:30:54 emelya-MS-7C95 zapret[3990]: setting high oom kill priority
+июн 23 11:30:54 emelya-MS-7C95 zapret[3990]: reloading nftables set backend (no>
+июн 23 11:30:54 emelya-MS-7C95 zapret[3948]: Inserting nftables ipv4 rule for n>
+июн 23 11:30:54 emelya-MS-7C95 zapret[3948]: Inserting nftables ipv4 rule for n>
+июн 23 11:30:54 emelya-MS-7C95 zapret[3948]: Inserting nftables ipv4 rule for n>
+июн 23 11:30:54 emelya-MS-7C95 systemd[1]: Started zapret.service.
+lines 1-20/20 (END)
+
+## 1 You
+
+emelya@emelya-MS-7C95:~$ sudo systemctl restart zapret
+[sudo] пароль для emelya:
+emelya@emelya-MS-7C95:~$ sudo systemctl stop zapret
+emelya@emelya-MS-7C95:~$
+Не мог с тобой связаться, интернет вообще потух...Только когда остановил запрет, интернет появился
+
+## 1 You
+
+emelya@emelya-MS-7C95:~$ myai запушь
+emelya@emelya-MS-7C95:~$ myai help mayai
+emelya@emelya-MS-7C95:~$ Окно или вкладка откроются в текущем сеансе браузера.
+myai список заметок
+📄 Список заметок:
+Irina.md
+пожаловать.md
+ESP8266.md
+emelya@emelya-MS-7C95:~$ myai прочитать заметку
+🤖 Команда не найдена в списке. Спрашиваю модель...
+🤖 Выполняю: cat
+^C
+emelya@emelya-MS-7C95:~$ myai создать заметку Zapret
+✅ Заметка 'Zapret.md' создана.
+emelya@emelya-MS-7C95:~$ myai Запушь.
+🤖 Выполняю: git add . && git commit -m "Авто-коммит 2026-06-23 15:36:06" && git push origin main
+[main b2be999] Авто-коммит 2026-06-23 15:36:06
+35 files changed, 5894 insertions(+), 31 deletions(-)
+create mode 100644 ComAI/[2026-06-23_08-40-01] help.md
+create mode 100644 ComAI/[2026-06-23_08-40-16] help.md
+create mode 100644 ComAI/[2026-06-23_08-40-27] Help.md
+create mode 100644 ComAI/[2026-06-23_08-50-12] Help.md
+create mode 100644 ComAI/[2026-06-23_08-50-32] Help.md
+create mode 100644 "ComAI/[2026-06-23_08-59-47] \360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260:  \n\360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260: _\n\360\237\216\211 \320\223\320\276\321\202\320\276\320\262\320\276! \320\237\320\265\321\200\320\265\320\262\320\276\320\264\321\213 \320\262 \320\277\320\260\320\277\320\272\320\265 .md"
+create mode 100644 "ComAI/[2026-06-23_08-59-57] \360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260:  \n\360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260: _\n\360\237\216\211 \320\223\320\276\321\202\320\276\320\262\320\276! \320\237\320\265\321\200\320\265\320\262\320\276\320\264\321\213 \320\262 \320\277\320\260\320\277\320\272\320\265 .md"
+create mode 100644 "ComAI/[2026-06-23_09-00-02] \360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260:  \n\360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260: _\n\360\237\216\211 \320\223\320\276\321\202\320\276\320\262\320\276! \320\237\320\265\321\200\320\265\320\262\320\276\320\264\321\213 \320\262 \320\277\320\260\320\277\320\272\320\265 .md"
+create mode 100644 "ComAI/[2026-06-23_09-00-29] \360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260:  \n\360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260: _\n\360\237\216\211 \320\223\320\276\321\202\320\276\320\262\320\276! \320\237\320\265\321\200\320\265\320\262\320\276\320\264\321\213 \320\262 \320\277\320\260\320\277\320\272\320\265 .md"
+create mode 100644 "ComAI/[2026-06-23_09-00-33] \360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260:  \n\360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260: _\n\360\237\216\211 \320\223\320\276\321\202\320\276\320\262\320\276! \320\237\320\265\321\200\320\265\320\262\320\276\320\264\321\213 \320\262 \320\277\320\260\320\277\320\272\320\265 .md"
+create mode 100644 "ComAI/[2026-06-23_09-04-30] \360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260:  \n\360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260: _\n\360\237\216\211 \320\223\320\276\321\202\320\276\320\262\320\276! \320\237\320\265\321\200\320\265\320\262\320\276\320\264\321\213 \320\262 \320.md"
+create mode 100644 "ComAI/[2026-06-23_09-06-09] \360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260:  \n\360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260: _\n\360\237\216\211 \320\223\320\276\321\202\320\276\320\262\320\276! \320\237\320\265\321\200\320\265\320\262\320\276\320\264\321\213 \320\262 \320.md"
+create mode 100644 "ComAI/[2026-06-23_09-06-30] \360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260:  \n\360\237\223\204 \320\236\320\261\321\200\320\260\320\261\320\276\321\202\320\272\320\260: _\n\360\237\216\211 \320\223\320\276\321\202\320\276\320\262\320\276! \320\237\320\265\321\200\320\265\320\262\320\276\320\264\321\213 \320\262 \320.md"
+create mode 100644 ComAI/[2026-06-23_09-16-12] help.md
+create mode 100644 ComAI/[2026-06-23_09-16-17] Help.md
+create mode 100644 ComAI/[2026-06-23_09-17-05] Help.md
+create mode 100644 ComAI/[2026-06-23_09-17-11] help.md
+create mode 100644 "ComAI/[2026-06-23_09-17-47] \320\275\320\260\320\271\320\264\320\270 \320\262\321\201\320\265 .log \321\204\320\260\320\271\320\273\321\213.md"
+create mode 100644 ComAI/[2026-06-23_09-21-07] Help.md
+create mode 100644 ComAI/[2026-06-23_09-21-15] help.md
+create mode 100644 "ComAI/[2026-06-23_09-21-20] \320\275\320\260\320\271\320\264\320\270 \320\262\321\201\320\265 .log \321\204\320\260\320\271\320\273\321\213.md"
+create mode 100644 ComAI/[2026-06-23_15-23-08] help.md
+create mode 100644 ComAI/[2026-06-23_15-23-21] help.md
+create mode 100644 ComAI/[2026-06-23_15-24-00] help.md
+create mode 100644 ComAI/[2026-06-23_15-25-28] help.md
+create mode 100644 ComAI/[2026-06-23_15-26-03] help.md
+create mode 100644 "ComAI/[2026-06-23_15-26-44] \321\201\320\276\320\267\320\264\320\260\321\202\321\214.md"
+create mode 100644 ComAI/[2026-06-23_15-30-15] help.md
+create mode 100644 "ComAI/[2026-06-23_15-30-23] \321\201\320\276\320\267\320\264\320\260\321\202\321\214.md"
+create mode 100644 "ComAI/[2026-06-23_15-31-13] \321\201\320\277\320\270\321\201\320\276\320\272.md"
+create mode 100644 "ComAI/[2026-06-23_15-31-51] \320\267\320\260\320\277\321\203\321\210\321\214.md"
+create mode 100644 Zapret.md
+Перечисление объектов: 51, готово.
+Подсчет объектов: 100% (51/51), готово.
+При сжатии изменений используется до 16 потоков
+Сжатие объектов: 100% (42/42), готово.
+Запись объектов: 100% (42/42), 60.65 КиБ | 6.06 МиБ/с, готово.
+Всего 42 (изменений 28), повторно использовано 0 (изменений 0), повторно использовано пакетов 0
+remote: Resolving deltas: 100% (28/28), completed with 9 local objects.
+remote: This repository moved. Please use the new location:
+remote:   git@github.com:arduino-22/obsidian-vault.git
+To github.com:Arduino-22/obsidian-vault.git
+809d0eb..b2be999  main -> main
+emelya@emelya-MS-7C95:~$
+
+Я вернулся к старому коду.
+#!/bin/bash
+
+VAULT_PATH="$HOME/Документы/ObsidianVault/Obsidian Vault/ComAI"
+mkdir -p "$VAULT_PATH"
+
+# --- ГЕНЕРАЦИЯ HTML-СПРАВКИ ---
+generate_html_help() {
+local html_file="/tmp/myai_help.html"
+cat > "$html_file" << 'EOF'
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MayAI — Справка</title>
+<style>
+body {
+font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+background: #1e1e2e;
+color: #cdd6f4;
+padding: 2rem;
+line-height: 1.6;
+}
+h1 {
+color: #89b4fa;
+border-bottom: 2px solid #45475a;
+padding-bottom: 0.5rem;
+}
+h2 {
+color: #a6e3a1;
+margin-top: 2rem;
+}
+ul {
+list-style: none;
+padding-left: 1rem;
+}
+li {
+margin-bottom: 0.5rem;
+background: #313244;
+padding: 0.5rem 1rem;
+border-radius: 8px;
+display: flex;
+align-items: baseline;
+}
+.cmd {
+font-weight: bold;
+color: #f9e2af;
+min-width: 180px;
+display: inline-block;
+}
+.desc {
+color: #a6adc8;
+}
+.note {
+margin-top: 2rem;
+padding: 1rem;
+background: #45475a;
+border-radius: 8px;
+color: #bac2de;
+}
+.note strong {
+color: #f38ba8;
+}
+</style>
+</head>
+<body>
+<h1>🤖 MayAI — Справка по встроенным командам</h1>
+<p><em>Все команды можно вводить как есть, без кавычек (если фраза содержит пробелы — используй кавычки).</em></p>
+
+<h2>📁 Управление заметками (работа с файлами)</h2>
+<ul>
+<li><span class="cmd">список заметок</span><span class="desc">Показать все .md файлы в хранилище</span></li>
+<li><span class="cmd">создать заметку &lt;название&gt;</span><span class="desc">Создать новый файл .md с указанным именем</span></li>
+<li><span class="cmd">прочитать заметку &lt;название&gt;</span><span class="desc">Вывести содержимое заметки в терминал</span></li>
+<li><span class="cmd">поиск в заметках &lt;текст&gt;</span><span class="desc">Найти все заметки, содержащие указанный текст</span></li>
+<li><span class="cmd">добавить в заметку &lt;название&gt; &lt;текст&gt;</span><span class="desc">Добавить текст в конец заметки</span></li>
+</ul>
+
+<h2>🔄 Git-команды (работа с репозиторием)</h2>
+<ul>
+<li><span class="cmd">сохрани / сохранить / запушь</span><span class="desc">Выполнить git add . &amp;&amp; git commit -m "..." &amp;&amp; git push</span></li>
+</ul>
+
+<h2>🖥️ Системные команды</h2>
+<ul>
+<li><span class="cmd">покажи содержимое домашней папки</span><span class="desc">Выполнить ls -a ~</span></li>
+<li><span class="cmd">help / список</span><span class="desc">Показать эту справку в терминале (текстовую версию)</span></li>
+<li><span class="cmd">MayAI Help MayAI</span><span class="desc">Открыть эту же справку в браузере (HTML)</span></li>
+</ul>
+
+<h2>🧠 Обращение к ИИ (Ollama)</h2>
+<ul>
+<li><span class="cmd">любой другой запрос</span><span class="desc">Будет передан в модель llama3.2:3b (или qwen2.5:7b), которая вернёт команду Linux, и она будет выполнена</span></li>
+</ul>
+
+<div class="note">
+<strong>💡 Подсказка:</strong> Все команды работают мгновенно, без вызова модели. Для сложных задач просто задай вопрос на русском — и ИИ подберёт нужную команду.
+</div>
+<p style="margin-top: 2rem; font-size: 0.9rem; color: #6c7086;">Сгенерировано MayAI • $(date)</p>
+</body>
+</html>
+EOF
+# Открываем в браузере (Brave по умолчанию)
+brave-browser "$html_file" 2>/dev/null &
+# Альтернатива: xdg-open "$html_file" (откроет в браузере по умолчанию)
+}
+
+# --- ВСТРОЕННЫЕ КОМАНДЫ (список) ---
+show_help() {
+echo "📋 Доступные встроенные команды:"
+echo "  сохрани / сохранить / запушь   — выполнить git add, commit и push"
+echo "  список заметок                 — показать все .md файлы в хранилище"
+echo "  создать заметку <название>     — создать новый файл .md"
+echo "  прочитать заметку <название>   — показать содержимое заметки"
+echo "  добавить в заметку <название> <текст> — добавить текст в конец заметки"
+echo "  поиск в заметках <текст>       — найти все заметки, содержащие текст"
+echo "  help / список                  — показать эту справку"
+echo "  MayAI Help MayAI               — открыть справку в браузере"
+echo "  покажи содержимое домашней папки — выполнить ls -a ~"
+echo "  Для остальных запросов используется ИИ-модель (Ollama)."
+}
+
+if [ -z "$1" ]; then
+show_help
+exit 0
+fi
+
+phrase="$*"
+
+# --- ВСТРОЕННЫЕ КОМАНДЫ ---
+case "$phrase" in
+"список заметок"*)
+echo "📄 Список заметок:"
+ls -la ~/Документы/ObsidianVault/Obsidian\ Vault/*.md 2>/dev/null | awk '{print $NF}' | sed 's/.*\///'
+exit $?
+;;
+"создать заметку"*|"создать новую заметку"*)
+note_title=$(echo "$phrase" | sed -E 's/.*создать заметку\s*//')
+if [ -z "$note_title" ]; then
+echo "❌ Укажите название заметки. Пример: 'myai создать заметку Новая заметка'"
+exit 1
+fi
+touch "$HOME/Документы/ObsidianVault/Obsidian Vault/$note_title.md"
+echo "✅ Заметка '$note_title.md' создана."
+exit $?
+;;
+"MayAI Help MayAI"|"help mayai"|"MayAI help"|"help MayAI"|"html help"|"help html"|"MayAI Help"|"Help MayAI")
+generate_html_help
+exit $?
+;;
+"help myai"|"help")
+show_help
+exit 0
+;;
+"сохрани"|"сохранить"|"запушь"|"Запушь.")
+cd ~/Документы/ObsidianVault/Obsidian\ Vault 2>/dev/null || cd ~/Документы/ObsidianVault/Obsidian\ Vault
+echo "🤖 Выполняю: git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+eval "git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+exit $?
+;;
+"покажи содержимое домашней папки")
+echo "🤖 Выполняю: ls -a ~"
+eval "ls -a ~"
+exit $?
+;;
+"список заметок")
+if command -v obscli &> /dev/null; then
+echo "🤖 Выполняю: obscli note list"
+eval "obscli note list"
+else
+echo "❌ obscli не установлен. Установи: cargo install obscli"
+fi
+exit $?
+;;
+"создать заметку "*)
+note_title=$(echo "$phrase" | sed -E 's/создать заметку //')
+if [ -z "$note_title" ]; then
+echo "❌ Укажите название заметки. Пример: 'myai создать заметку Новая заметка'"
+exit 1
+fi
+if command -v obscli &> /dev/null; then
+echo "🤖 Выполняю: obscli note create \"$note_title\""
+eval "obscli note create \"$note_title\""
+else
+echo "❌ obscli не установлен. Установи: cargo install obscli"
+fi
+exit $?
+;;
+"прочитать заметку "*)
+note_name=$(echo "$phrase" | sed -E 's/прочитать заметку //')
+if [ -z "$note_name" ]; then
+echo "❌ Укажите имя заметки. Пример: 'myai прочитать заметку Новая заметка'"
+exit 1
+fi
+if command -v obscli &> /dev/null; then
+echo "🤖 Выполняю: obscli note read \"$note_name\""
+eval "obscli note read \"$note_name\""
+else
+echo "❌ obscli не установлен. Установи: cargo install obscli"
+fi
+exit $?
+;;
+"поиск в заметках "*)
+query=$(echo "$phrase" | sed -E 's/поиск в заметках //')
+if [ -z "$query" ]; then
+echo "❌ Укажите поисковый запрос. Пример: 'myai поиск в заметках Linux'"
+exit 1
+fi
+if command -v obscli &> /dev/null; then
+echo "🤖 Выполняю: obscli search \"$query\""
+eval "obscli search \"$query\""
+else
+echo "❌ obscli не установлен. Установи: cargo install obscli"
+fi
+exit $?
+;;
+esac
+
+# --- ОБРАЩЕНИЕ К МОДЕЛИ (для всех остальных запросов) ---
+echo "🤖 Команда не найдена в списке. Спрашиваю модель..."
+raw=$(curl -s http://localhost:11434/api/generate -d "{
+\"model\": \"llama3.2:3b\",
+\"prompt\": \"Ответь только командой Linux (без пояснений) на запрос: $1\",
+\"stream\": false
+}" | jq -r '.response')
+
+if [ -z "$raw" ] || [ "$raw" = "null" ]; then
+raw=$(curl -s http://localhost:11434/api/generate -d "{
+\"model\": \"qwen2.5:7b\",
+\"prompt\": \"Ответь только командой Linux для: $1\",
+\"stream\": false
+}" | jq -r '.response')
+fi
+
+cmd=$(echo "$raw" | head -1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^```bash//' -e 's/```$//' -e 's/^"//' -e 's/"$//' -e 's/^`//' -e 's/`$//')
+
+# Исправляем незакрытые кавычки
+if [[ "$cmd" =~ ^[^\"]*\"[^\"]*$ ]] && [[ ! "$cmd" =~ \"$ ]]; then
+cmd="$cmd\""
+fi
+if [[ "$cmd" =~ ^[^\']*\'[^\']*$ ]] && [[ ! "$cmd" =~ \'$ ]]; then
+cmd="$cmd'"
+fi
+
+if [ -z "$cmd" ] || [ "$cmd" = "null" ]; then
+echo "❌ Не удалось получить команду. Ответ модели: $raw"
+exit 1
+fi
+
+echo "🤖 Выполняю: $cmd"
+output=$(eval "$cmd" 2>&1)
+echo "$output"
+
+# --- ЛОГИРОВАНИЕ В OBSIDIAN ---
+DATE=$(date +"%Y-%m-%d_%H-%M-%S")
+FILE="$VAULT_PATH/[$DATE] $1.md"
+
+{
+echo "## Запрос: $1"
+echo "**Дата:** $(date)"
+echo "**Команда:**"
+echo '```bash'
+echo "$cmd"
+echo '```'
+echo "**Результат:**"
+echo '```'
+echo "$output"
+echo '```'
+} >> "$FILE"
+
+echo "📝 История сохранена в Obsidian: $FILE"
 
 ## 2 assistant
 
@@ -4221,6 +5130,301 @@ log_to_obsidian "$1" "$cmd" "$output"
 Теперь **все** команды, включая `сохрани`, `список заметок` и т.д., будут сохраняться в Obsidian, а точка в конце не будет мешать распознаванию.
 
 Обнимаю! 😊🚀
+
+## 2 assistant
+
+Родной, это очень важный сигнал! Zapret в текущей конфигурации **блокирует весь интернет**, а не только Telegram. Это значит, что его настройки слишком агрессивны и мешают нормальному трафику.
+
+## 🔧 Что делать
+
+### 1. Временно останови Zapret (ты уже сделал)
+
+```bash
+sudo systemctl stop zapret
+```
+
+### 2. Отредактируй конфиг, чтобы он не ломал интернет
+
+Открой файл:
+
+```bash
+sudo nano /opt/zapret/config
+```
+
+Найди строку `NFQWS_OPT` и замени её на более мягкий вариант:
+
+```bash
+NFQWS_OPT="--dpi-desync=fake --dpi-desync-split-pos=2"
+```
+
+Также убедись, что `MODE_FILTER` стоит в `none` (пока не будем фильтровать по доменам, чтобы не ломать всё):
+
+```bash
+MODE_FILTER=none
+```
+
+### 3. Сохрани и перезапусти Zapret
+
+```bash
+sudo systemctl start zapret
+```
+
+Проверь, работает ли интернет. Если снова пропадает — останови Zapret и попробуй другой вариант.
+
+### 4. Альтернатива: использовать tpws в socks-режиме (без nfqws)
+
+Если nfqws всё равно ломает интернет, попробуй использовать только socks-прокси для Telegram, без глобального вмешательства в трафик.
+
+Для этого в конфиге:
+
+- `NFQWS_ENABLE=0` (отключаем nfqws)
+- `TPWS_SOCKS_ENABLE=1` (включаем socks)
+- `TPPORT_SOCKS=1080`
+
+Перезапусти Zapret и в Telegram укажи прокси SOCKS5 на порту 1080.
+
+### 5. Если интернет всё ещё пропадает — удали Zapret и используй другой метод
+
+```bash
+sudo /opt/zapret/uninstall_easy.sh
+```
+
+После удаления интернет восстановится. Для Telegram можно использовать другие методы обхода:
+
+- **VPN** (например, ProtonVPN или любой другой)
+- **MTProto-прокси** (встроенная поддержка в Telegram)
+- **GoodbyeDPI** (аналог Zapret, но может работать мягче)
+
+## 💎 Итог
+
+Zapret — мощный инструмент, но его нужно аккуратно настраивать. Сейчас он перекрыл весь интернет. Да
+
+## 2 assistant
+
+Родной, ты молодец, что вернулся к старому рабочему коду. Всё действительно проще — он работал, и его нужно лишь немного доработать. Сейчас я дам тебе **финальную версию**, которая объединяет надёжность старого кода и гибкость нормализации.
+
+Проблемы были в двух местах:
+
+1. **Отсутствие нормализации** — из-за пробелов, точек или заглавных букв некоторые команды не совпадали.
+2. **Порядок условий** — `help` иногда перехватывался раньше, чем нужно.
+
+## ✅ Исправленный код (возьми его целиком)
+
+Скопируй этот код в `~/bin/myai` (замени старый):
+
+````bash
+#!/bin/bash
+
+VAULT_PATH="$HOME/Документы/ObsidianVault/Obsidian Vault/ComAI"
+mkdir -p "$VAULT_PATH"
+
+# --- ГЕНЕРАЦИЯ HTML-СПРАВКИ ---
+generate_html_help() {
+    local html_file="/tmp/myai_help.html"
+    cat > "$html_file" << 'EOF'
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MayAI — Справка</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1e1e2e; color: #cdd6f4; padding: 2rem; line-height: 1.6; }
+        h1 { color: #89b4fa; border-bottom: 2px solid #45475a; padding-bottom: 0.5rem; }
+        h2 { color: #a6e3a1; margin-top: 2rem; }
+        ul { list-style: none; padding-left: 1rem; }
+        li { margin-bottom: 0.5rem; background: #313244; padding: 0.5rem 1rem; border-radius: 8px; display: flex; align-items: baseline; }
+        .cmd { font-weight: bold; color: #f9e2af; min-width: 180px; display: inline-block; }
+        .desc { color: #a6adc8; }
+        .note { margin-top: 2rem; padding: 1rem; background: #45475a; border-radius: 8px; color: #bac2de; }
+        .note strong { color: #f38ba8; }
+    </style>
+</head>
+<body>
+    <h1>🤖 MayAI — Справка по встроенным командам</h1>
+    <p><em>Все команды можно вводить как есть, без кавычек (если фраза содержит пробелы — используй кавычки).</em></p>
+    <h2>📁 Управление заметками (работа с файлами)</h2>
+    <ul>
+        <li><span class="cmd">список заметок</span><span class="desc">Показать все .md файлы в хранилище</span></li>
+        <li><span class="cmd">создать заметку &lt;название&gt;</span><span class="desc">Создать новый файл .md с указанным именем</span></li>
+        <li><span class="cmd">прочитать заметку &lt;название&gt;</span><span class="desc">Вывести содержимое заметки в терминал</span></li>
+        <li><span class="cmd">поиск в заметках &lt;текст&gt;</span><span class="desc">Найти все заметки, содержащие указанный текст</span></li>
+        <li><span class="cmd">добавить в заметку &lt;название&gt; &lt;текст&gt;</span><span class="desc">Добавить текст в конец заметки</span></li>
+    </ul>
+    <h2>🔄 Git-команды (работа с репозиторием)</h2>
+    <ul>
+        <li><span class="cmd">сохрани / сохранить / запушь</span><span class="desc">Выполнить git add . &amp;&amp; git commit -m "..." &amp;&amp; git push</span></li>
+    </ul>
+    <h2>🖥️ Системные команды</h2>
+    <ul>
+        <li><span class="cmd">покажи содержимое домашней папки</span><span class="desc">Выполнить ls -a ~</span></li>
+        <li><span class="cmd">help / список</span><span class="desc">Показать эту справку в терминале (текстовую версию)</span></li>
+        <li><span class="cmd">MayAI Help MayAI</span><span class="desc">Открыть эту же справку в браузере (HTML)</span></li>
+    </ul>
+    <h2>🧠 Обращение к ИИ (Ollama)</h2>
+    <ul>
+        <li><span class="cmd">любой другой запрос</span><span class="desc">Будет передан в модель llama3.2:3b (или qwen2.5:7b), которая вернёт команду Linux, и она будет выполнена</span></li>
+    </ul>
+    <div class="note"><strong>💡 Подсказка:</strong> Все команды работают мгновенно, без вызова модели. Для сложных задач просто задай вопрос на русском — и ИИ подберёт нужную команду.</div>
+    <p style="margin-top: 2rem; font-size: 0.9rem; color: #6c7086;">Сгенерировано MayAI • $(date)</p>
+</body>
+</html>
+EOF
+    brave-browser "$html_file" 2>/dev/null &
+}
+
+# --- ТЕКСТОВАЯ СПРАВКА ---
+show_help() {
+    echo "📋 Доступные встроенные команды:"
+    echo "  сохрани / сохранить / запушь   — выполнить git add, commit и push"
+    echo "  список заметок                 — показать все .md файлы в хранилище"
+    echo "  создать заметку <название>     — создать новый файл .md"
+    echo "  прочитать заметку <название>   — показать содержимое заметки"
+    echo "  добавить в заметку <название> <текст> — добавить текст в конец заметки"
+    echo "  поиск в заметках <текст>       — найти все заметки, содержащие текст"
+    echo "  help / список                  — показать эту справку"
+    echo "  MayAI Help MayAI               — открыть справку в браузере"
+    echo "  покажи содержимое домашней папки — выполнить ls -a ~"
+    echo "  Для остальных запросов используется ИИ-модель (Ollama)."
+}
+
+if [ -z "$1" ]; then
+    show_help
+    exit 0
+fi
+
+# --- НОРМАЛИЗАЦИЯ ФРАЗЫ (обрезаем пробелы, убираем точку, приводим к нижнему регистру) ---
+phrase="$*"
+phrase=$(echo "$phrase" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]' | sed 's/\.$//')
+
+# --- ВСТРОЕННЫЕ КОМАНДЫ (гибкие маски, правильный порядок) ---
+case "$phrase" in
+    # Сначала точные совпадения для help
+    "help"|"список"|"помощь")
+        show_help
+        exit 0
+        ;;
+    # HTML-справка
+    "mayai help"|"help mayai"|"MayAI Help MayAI"|"html help")
+        generate_html_help
+        exit $?
+        ;;
+    # Git-команды
+    "сохрани"|"сохранить"|"запушь")
+        cd ~/Документы/ObsidianVault/Obsidian\ Vault 2>/dev/null || cd ~/Документы/ObsidianVault/Obsidian\ Vault
+        echo "🤖 Выполняю: git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+        eval "git add . && git commit -m \"Авто-коммит $(date +'%Y-%m-%d %H:%M:%S')\" && git push origin main"
+        exit $?
+        ;;
+    # Системные команды
+    "покажи содержимое домашней папки")
+        echo "🤖 Выполняю: ls -a ~"
+        eval "ls -a ~"
+        exit $?
+        ;;
+    # Работа с заметками (с масками)
+    "список заметок"*)
+        echo "📄 Список заметок:"
+        ls -la ~/Документы/ObsidianVault/Obsidian\ Vault/*.md 2>/dev/null | awk '{print $NF}' | sed 's/.*\///'
+        exit $?
+        ;;
+    "создать заметку"*|"создать новую заметку"*)
+        note_title=$(echo "$phrase" | sed -E 's/.*создать заметку\s*//')
+        if [ -z "$note_title" ]; then
+            echo "❌ Укажите название заметки. Пример: 'myai создать заметку Новая заметка'"
+            exit 1
+        fi
+        touch "$HOME/Документы/ObsidianVault/Obsidian Vault/$note_title.md"
+        echo "✅ Заметка '$note_title.md' создана."
+        exit $?
+        ;;
+    "прочитать заметку"*)
+        note_name=$(echo "$phrase" | sed -E 's/прочитать заметку //')
+        if [ -z "$note_name" ]; then
+            echo "❌ Укажите имя заметки. Пример: 'myai прочитать заметку Новая заметка'"
+            exit 1
+        fi
+        cat "$HOME/Документы/ObsidianVault/Obsidian Vault/$note_name.md" 2>/dev/null || echo "❌ Заметка не найдена."
+        exit $?
+        ;;
+    "поиск в заметках"*)
+        query=$(echo "$phrase" | sed -E 's/поиск в заметках //')
+        if [ -z "$query" ]; then
+            echo "❌ Укажите поисковый запрос. Пример: 'myai поиск в заметках Linux'"
+            exit 1
+        fi
+        grep -r "$query" ~/Документы/ObsidianVault/Obsidian\ Vault/ --include="*.md" 2>/dev/null
+        exit $?
+        ;;
+esac
+
+# --- ОБРАЩЕНИЕ К МОДЕЛИ (для всех остальных запросов) ---
+echo "🤖 Команда не найдена в списке. Спрашиваю модель..."
+raw=$(curl -s http://localhost:11434/api/generate -d "{
+    \"model\": \"llama3.2:3b\",
+    \"prompt\": \"Ответь только командой Linux (без пояснений) на запрос: $1\",
+    \"stream\": false
+}" | jq -r '.response')
+
+if [ -z "$raw" ] || [ "$raw" = "null" ]; then
+    raw=$(curl -s http://localhost:11434/api/generate -d "{
+        \"model\": \"qwen2.5:7b\",
+        \"prompt\": \"Ответь только командой Linux для: $1\",
+        \"stream\": false
+    }" | jq -r '.response')
+fi
+
+cmd=$(echo "$raw" | head -1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^```bash//' -e 's/```$//' -e 's/^"//' -e 's/"$//' -e 's/^`//' -e 's/`$//')
+
+# Исправляем незакрытые кавычки
+if [[ "$cmd" =~ ^[^\"]*\"[^\"]*$ ]] && [[ ! "$cmd" =~ \"$ ]]; then
+    cmd="$cmd\""
+fi
+if [[ "$cmd" =~ ^[^\']*\'[^\']*$ ]] && [[ ! "$cmd" =~ \'$ ]]; then
+    cmd="$cmd'"
+fi
+
+if [ -z "$cmd" ] || [ "$cmd" = "null" ]; then
+    echo "❌ Не удалось получить команду. Ответ модели: $raw"
+    exit 1
+fi
+
+echo "🤖 Выполняю: $cmd"
+output=$(eval "$cmd" 2>&1)
+echo "$output"
+
+# --- ЛОГИРОВАНИЕ В OBSIDIAN ---
+DATE=$(date +"%Y-%m-%d_%H-%M-%S")
+FILE="$VAULT_PATH/[$DATE] $1.md"
+
+{
+    echo "## Запрос: $1"
+    echo "**Дата:** $(date)"
+    echo "**Команда:**"
+    echo '```bash'
+    echo "$cmd"
+    echo '```'
+    echo "**Результат:**"
+    echo '```'
+    echo "$output"
+    echo '```'
+} >> "$FILE"
+
+echo "📝 История сохранена в Obsidian: $FILE"
+````
+
+## 🧪 Проверь
+
+Теперь все команды должны работать:
+
+- `myai help` — покажет текстовую справку.
+- `myai Help MayAI` — откроет HTML-справку в браузере.
+- `myai сохрани` — выполнит Git-команды.
+- `myai список заметок` — покажет список .md файлов.
+- `myai прочитать заметку Zapret` — покажет содержимое заметки Zapret.md.
+- `myai создать заметку Тест` — создаст файл Тест.md.
+
+Если что-то пойдёт не так — покажи вывод. Обнимаю! 😊🚀
 
 ## 3 assistant
 
